@@ -1,0 +1,54 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/gitscope}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+# Google Gemini API
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:your-gemini-api-key}
+    base-url: https://generativelanguage.googleapis.com/v1beta
+    model: gemini-1.5-flash
+    embedding-model: text-embedding-004
+
+# ChromaDB Configuration
+chroma:
+  host: ${CHROMA_HOST:localhost}
+  port: ${CHROMA_PORT:8000}
+  collection-name: gitscope_chunks
+
+# RAG Configuration
+rag:
+  top-k: ${TOP_K_RESULTS:5}
+  max-chunk-size: 1500
+  chunk-overlap: 200
+
+# Repository Cloning
+github:
+  clone-dir: ${CLONE_DIR:./tmp/repos}
+  max-file-size-mb: ${MAX_FILE_SIZE_MB:20}
+  max-files: ${MAX_FILES:500}
+
+logging:
+  level:
+    com.gitscope: INFO
+    org.springframework: WARN

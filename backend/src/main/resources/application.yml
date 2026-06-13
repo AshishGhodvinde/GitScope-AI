@@ -1,0 +1,85 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/gitscope}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+  # ─── Spring AI 1.0.0 GA: Local ONNX in-process embeddings ─────────────────
+  # Activates all-MiniLM-L6-v2 running entirely inside the JVM.
+  # On first startup, the model (~23MB) is downloaded once from HuggingFace Hub
+  # and cached in ~/.cache/spring-ai/onnx/. Zero external services required.
+  ai:
+    # Option A: If using the standalone Google GenAI Developer API starter
+    google:
+      genai:
+        chat:
+          options:
+            model: gemini-2.5-flash
+            temperature: 0.5
+    
+    # Option B: If using the Vertex AI Gemini starter wrapper
+    vertex:
+      ai:
+        gemini:
+          chat:
+            options:
+              model: gemini-2.5-flash
+              temperature: 0.5
+
+    embedding:
+      transformer:
+        enabled: true
+        # Optional: point to a local model directory to avoid the first-run download.
+        # onnx:
+        #   modelUri: file://${user.home}/.cache/spring-ai/onnx/all-MiniLM-L6-v2/
+
+# ─── Google Gemini API ────────────────────────────────────────────────────────
+# Used ONLY for: repository summary generation and answer generation (RAG step).
+# Embeddings are handled locally via ONNX — zero Gemini token usage at index time.
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:your-gemini-api-key}
+    base-url: https://generativelanguage.googleapis.com/v1beta
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
+
+# ─── ChromaDB ─────────────────────────────────────────────────────────────────
+chroma:
+  host: ${CHROMA_HOST:localhost}
+  port: ${CHROMA_PORT:8000}
+  collection-name: gitscope_chunks
+
+# ─── RAG Pipeline ─────────────────────────────────────────────────────────────
+rag:
+  top-k: ${TOP_K_RESULTS:12}
+  max-chunk-size: 1500
+  chunk-overlap: 200
+
+# ─── Repository Cloning ───────────────────────────────────────────────────────
+github:
+  clone-dir: ${CLONE_DIR:./tmp/repos}
+  max-file-size-mb: ${MAX_FILE_SIZE_MB:20}
+  max-files: ${MAX_FILES:500}
+
+logging:
+  level:
+    com.gitscope: INFO
+    org.springframework: WARN
+    org.springframework.ai: INFO
