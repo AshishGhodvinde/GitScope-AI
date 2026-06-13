@@ -5,61 +5,61 @@
 /* ── CSS Design Tokens (Dark Default / Light Override) ────────────────────── */
 :root {
   /* Canvas */
-  --canvas-bg:      #09090b;
-  /* Shifting Mesh Light Fields (Dark Mode default) */
-  --mesh-color-1:   radial-gradient(circle, rgba(30, 27, 75, 0.7) 0%, rgba(30, 27, 75, 0) 70%);
-  --mesh-color-2:   radial-gradient(circle, rgba(154, 52, 18, 0.45) 0%, rgba(154, 52, 18, 0) 70%);
-  --mesh-color-3:   radial-gradient(circle, rgba(17, 94, 89, 0.5) 0%, rgba(17, 94, 89, 0) 70%);
-  --mesh-color-4:   radial-gradient(circle, rgba(99, 102, 241, 0.35) 0%, rgba(99, 102, 241, 0) 70%);
-  /* Glass panels */
-  --glass-bg:       rgba(9, 9, 11, 0.52);
-  --glass-sidebar:  rgba(5, 5, 8, 0.62);
-  --glass-border:   rgba(255, 255, 255, 0.055);
-  --glass-border-h: rgba(255, 255, 255, 0.10);
+  --canvas-bg:      #0d1117;
+  /* Shifting Mesh Light Fields (Muted dark background meshes) */
+  --mesh-color-1:   radial-gradient(circle, rgba(22, 27, 34, 0.5) 0%, rgba(22, 27, 34, 0) 70%);
+  --mesh-color-2:   radial-gradient(circle, rgba(48, 54, 61, 0.3) 0%, rgba(48, 54, 61, 0) 70%);
+  --mesh-color-3:   radial-gradient(circle, rgba(30, 38, 49, 0.4) 0%, rgba(30, 38, 49, 0) 70%);
+  --mesh-color-4:   radial-gradient(circle, rgba(56, 139, 253, 0.08) 0%, rgba(56, 139, 253, 0) 70%);
+  /* Glass panels (Make solid slate off-black) */
+  --glass-bg:       #161b22;
+  --glass-sidebar:  #161b22;
+  --glass-border:   #30363d;
+  --glass-border-h: #8b949e;
   /* Text */
-  --text-primary:   #f4f4f5;
-  --text-secondary: #a1a1aa;
-  --text-muted:     #52525b;
+  --text-primary:   #c9d1d9;
+  --text-secondary: #8b949e;
+  --text-muted:     #484f58;
   /* Accent */
-  --accent:         #3b82f6;
-  --accent-hover:   #2563eb;
-  /* Code blocks — high contrast for legibility, pinned to bg-[#18181c] in dark mode */
-  --code-bg:        #18181c;
-  --code-header:    rgba(30, 30, 36, 0.9);
-  --code-border:    rgba(255, 255, 255, 0.07);
+  --accent:         #58a6ff;
+  --accent-hover:   #388bfd;
+  /* Code blocks — high contrast for legibility */
+  --code-bg:        #0d1117;
+  --code-header:    #161b22;
+  --code-border:    #30363d;
   /* Input / interactive */
-  --input-bg:       rgba(9, 9, 11, 0.5);
-  --input-border:   rgba(255, 255, 255, 0.09);
+  --input-bg:       #0d1117;
+  --input-border:   #30363d;
   /* Divider */
-  --divider:        rgba(255, 255, 255, 0.06);
-  --filetree-guide: rgba(99, 102, 241, 0.22);
+  --divider:        #30363d;
+  --filetree-guide: #30363d;
 }
 
 /* Light mode token overrides */
 :root.light-mode {
-  --canvas-bg:      #f8fafc;
+  --canvas-bg:      #ffffff;
   /* Shifting Mesh Light Fields (Light Mode overrides) */
-  --mesh-color-1:   radial-gradient(circle, rgba(224, 242, 254, 0.85) 0%, rgba(224, 242, 254, 0) 70%);
-  --mesh-color-2:   radial-gradient(circle, rgba(255, 247, 237, 0.9) 0%, rgba(255, 247, 237, 0) 70%);
-  --mesh-color-3:   radial-gradient(circle, rgba(252, 231, 243, 0.75) 0%, rgba(252, 231, 243, 0) 70%);
-  --mesh-color-4:   radial-gradient(circle, rgba(199, 210, 254, 0.6) 0%, rgba(199, 210, 254, 0) 70%);
-  --glass-bg:       rgba(255, 255, 255, 0.72);
-  --glass-sidebar:  rgba(255, 255, 255, 0.84);
-  --glass-border:   rgba(0, 0, 0, 0.065);
-  --glass-border-h: rgba(0, 0, 0, 0.12);
-  --text-primary:   #0f172a;
-  --text-secondary: #475569;
-  --text-muted:     #64748b;
-  --accent:         #2563eb;
-  --accent-hover:   #1d4ed8;
-  /* Code blocks — pinned to bg-zinc-50 in light mode */
-  --code-bg:        #fafafa;
-  --code-header:    #f4f4f5;
-  --code-border:    rgba(0, 0, 0, 0.08);
-  --input-bg:       rgba(255, 255, 255, 0.7);
-  --input-border:   rgba(0, 0, 0, 0.10);
-  --divider:        rgba(0, 0, 0, 0.06);
-  --filetree-guide: rgba(37, 99, 235, 0.15);
+  --mesh-color-1:   radial-gradient(circle, rgba(224, 242, 254, 0.4) 0%, rgba(224, 242, 254, 0) 70%);
+  --mesh-color-2:   radial-gradient(circle, rgba(255, 247, 237, 0.4) 0%, rgba(255, 247, 237, 0) 70%);
+  --mesh-color-3:   radial-gradient(circle, rgba(252, 231, 243, 0.3) 0%, rgba(252, 231, 243, 0) 70%);
+  --mesh-color-4:   radial-gradient(circle, rgba(199, 210, 254, 0.2) 0%, rgba(199, 210, 254, 0) 70%);
+  --glass-bg:       #f6f8fa;
+  --glass-sidebar:  #f6f8fa;
+  --glass-border:   #d0d7de;
+  --glass-border-h: #57606a;
+  --text-primary:   #24292f;
+  --text-secondary: #57606a;
+  --text-muted:     #8c959f;
+  --accent:         #0969da;
+  --accent-hover:   #085ec6;
+  /* Code blocks */
+  --code-bg:        #ffffff;
+  --code-header:    #f6f8fa;
+  --code-border:    #d0d7de;
+  --input-bg:       #ffffff;
+  --input-border:   #d0d7de;
+  --divider:        #d0d7de;
+  --filetree-guide: #d0d7de;
 }
 
 /* ── Base Layer ─────────────────────────────────────────────────────────────── */
@@ -83,10 +83,10 @@
     transition: background 0.4s ease, color 0.3s ease;
   }
 
-  ::-webkit-scrollbar        { width: 4px; height: 4px; }
+  ::-webkit-scrollbar        { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track  { background: transparent; }
-  ::-webkit-scrollbar-thumb  { background: rgba(99,102,241,0.35); border-radius: 99px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.6); }
+  ::-webkit-scrollbar-thumb  { background: var(--divider); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--glass-border-h); }
 
   ::selection {
     background-color: rgba(79, 70, 229, 0.28);
@@ -118,23 +118,19 @@
   100% { transform: translate3d(8%, 10%, 0) scale(0.9) rotate(-180deg); }
 }
 
-/* ── Glass Component System ─────────────────────────────────────────────────── */
+/* ── Glass Component System (Solid Primary Panels) ── */
 @layer components {
 
   /* ── Glass panels ── */
   .glass-panel {
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
     transition: background 0.3s ease, border-color 0.3s ease;
   }
 
   .glass-sidebar {
     background: var(--glass-sidebar);
     border-right: 1px solid var(--glass-border);
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
     transition: background 0.3s ease;
   }
 
@@ -142,27 +138,23 @@
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: 0.875rem;
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
   }
 
   .glass-card-hover {
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: 0.875rem;
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
     transition: all 0.2s ease;
   }
 
   .glass-card-hover:hover {
     border-color: var(--glass-border-h);
-    background: rgba(99, 102, 241, 0.04);
+    background: rgba(88, 166, 255, 0.05);
     transform: translateY(-1px);
   }
 
   :root.light-mode .glass-card-hover:hover {
-    background: rgba(99, 102, 241, 0.06);
+    background: rgba(9, 105, 218, 0.04);
   }
 
   /* ── Gradient text ── */
@@ -355,7 +347,12 @@
   /* Thin custom scrollbar */
   .scrollbar-thin::-webkit-scrollbar { width: 3px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 99px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--divider); border-radius: 99px; }
+
+  .chat-scroll-zone {
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
 }
 
 /* ── Animations ────────────────────────────────────────────────────────────── */
@@ -584,4 +581,12 @@
   width: 2px;
   border-radius: 99px;
   background: var(--accent);
+}
+
+/* ── GPU Scroll Acceleration ── */
+.chat-scroll-zone {
+  overflow-y: auto;
+  will-change: transform;
+  contain: content;
+  -webkit-overflow-scrolling: touch;
 }

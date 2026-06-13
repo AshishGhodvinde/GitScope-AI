@@ -125,14 +125,14 @@ export function FileExplorer({ files }: FileExplorerProps) {
       </p>
 
       {/* Tree */}
-      <div className="flex-1 overflow-y-auto scrollbar-hide pb-4 space-y-0.5 text-xs">
+      <div className="flex-1 overflow-y-auto scrollbar-thin pb-4 space-y-0.5 text-xs">
         {dirs.map(dir => (
           <div key={dir || '__root__'}>
             {/* Directory row */}
             {dir && (
               <button
                 onClick={() => toggleDir(dir)}
-                className="flex items-center gap-1 w-full text-left px-1 py-1 rounded-md transition-colors"
+                className="flex items-center gap-1 w-full text-left px-1 py-1 rounded-md transition-colors overflow-x-auto scrollbar-hide whitespace-nowrap"
                 style={{ color: 'var(--text-secondary)' }}
                 onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-primary)')}
                 onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
@@ -142,14 +142,14 @@ export function FileExplorer({ files }: FileExplorerProps) {
                   style={{ color: 'var(--text-muted)' }}
                 />
                 <FolderOpen className="w-3 h-3 shrink-0" style={{ color: '#f59e0b' }} />
-                <span className="font-medium truncate text-[11px]">{dir}</span>
+                <span className="font-medium text-[11px] whitespace-nowrap">{dir}</span>
               </button>
             )}
 
             {/* Files */}
             {!collapsed.has(dir) && (
-              <div className={dir ? 'ml-5 pl-2 space-y-0.5 mt-0.5' : 'space-y-0.5'}
-                   style={dir ? { borderLeft: '1px solid var(--filetree-guide, rgba(99, 102, 241, 0.22))' } : {}}>
+              <div className={dir ? 'ml-4 pl-2.5 space-y-0.5 mt-0.5' : 'space-y-0.5'}
+                   style={dir ? { borderLeft: '1px solid var(--filetree-guide)' } : {}}>
                 {(tree[dir] ?? []).map(fileName => {
                   const fullPath = dir ? `${dir}/${fileName}` : fileName;
                   const isHit = highlighted === fullPath;
@@ -159,12 +159,12 @@ export function FileExplorer({ files }: FileExplorerProps) {
                     <div
                       key={fileName}
                       id={`file-row-${safeId}`}
-                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-all duration-200 cursor-default ${
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-md transition-all duration-200 cursor-default overflow-x-auto scrollbar-hide whitespace-nowrap ${
                         isHit ? 'animate-pulse' : ''
                       }`}
                       style={isHit ? {
-                        background: 'rgba(99,102,241,0.12)',
-                        border: '1px solid rgba(99,102,241,0.25)',
+                        background: 'rgba(56, 139, 253, 0.12)',
+                        border: '1px solid rgba(56, 139, 253, 0.25)',
                         color: 'var(--text-primary)',
                       } : {
                         color: 'var(--text-muted)',
@@ -180,7 +180,7 @@ export function FileExplorer({ files }: FileExplorerProps) {
                         className="w-3 h-3 shrink-0"
                         style={{ color: getExtColor(fileName) }}
                       />
-                      <span className="truncate font-mono text-[11px]">{fileName}</span>
+                      <span className="font-mono text-[11px] whitespace-nowrap">{fileName}</span>
                     </div>
                   );
                 })}
@@ -190,7 +190,7 @@ export function FileExplorer({ files }: FileExplorerProps) {
         ))}
 
         {filtered.length === 0 && (
-          <p className="text-center text-[11px] py-8" style={{ color: 'var(--text-muted)' }}>
+          <p className="text-center text-[11px] py-8 text-[color:var(--text-muted)]">
             No files match filter.
           </p>
         )}

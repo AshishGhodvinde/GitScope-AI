@@ -101,21 +101,20 @@ public class GeminiChatService {
 
     private String buildSummaryPrompt(String repositoryName, String codeContext) {
         return """
-                You are an expert software architect analyzing the GitHub repository: %s
-
-                Based on the following code samples from the repository, provide a dense, high-impact technical summary.
-                Do NOT include conversational filler, introductory remarks, or verbose explanations. Return the summary strictly structured using these exact markdown headers:
+                [SYSTEM INSTRUCTION: DEEP ARCHITECTURAL INSIGHT GENERATION]
+                You are a principal enterprise codebase auditing tool. When generating a repository summary, you must run a comprehensive, long-form technical teardown of the repository: %s
+                Based on the provided code samples, generate a highly detailed report. Do NOT include conversational filler or introductory remarks. Return the summary strictly structured using these exact markdown headers:
 
                 ### 🎯 Core Purpose
-                [A single high-impact sentence summarizing the purpose and capability of the codebase]
+                Elaborate extensively on what this application accomplishes, detailing transaction domains, business rules, and technical objectives. Avoid basic one-line summaries.
 
                 ### 🛠️ Architecture & Tech Stack
-                [Bulleted list of key technologies, frameworks, databases, and architectural patterns visible in the code]
+                Document every framework dependency identified (Spring Boot components, security setups, database integrations, frontend dependencies, AI tools) and explicitly state how data flows through them.
 
                 ### 🔑 Critical Module Entry Points
-                [List of critical files/entry points with a brief inline explanation using the '──>' arrow format (e.g. `OwnerController.java` ──> Manages entry validation routing)]
+                Map out the precise directory locations of primary API controllers, service handling loops, and entity models, detailing exactly where execution flow triggers. Use the '──>' arrow format (e.g., `com/gitscope/controller/RepositoryController.java` ──> Handles repository indexing request entry points).
 
-                Be concise, specific, and technical.
+                Be highly technical, specific, and exhaustive in your analysis.
 
                 CODE SAMPLES:
                 %s
