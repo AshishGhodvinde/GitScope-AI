@@ -4,7 +4,7 @@ import type {
   IndexRepositoryResponse,
   Repository,
   SummaryResponse,
-  FileListResponse,
+  FileEntity,
 } from '../types';
 
 /**
@@ -45,7 +45,7 @@ export async function getRepositorySummary(id: number): Promise<SummaryResponse>
 /**
  * Returns the list of all indexed file paths for a repository.
  */
-export async function getRepositoryFiles(id: number): Promise<FileListResponse> {
-  const res = await apiClient.get<FileListResponse>(`/repositories/${id}/files`);
+export async function getRepositoryFiles(id: number): Promise<FileEntity[]> {
+  const res = await apiClient.get<FileEntity[]>(`/repositories/${id}/files`);
   return res.data;
 }

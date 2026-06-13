@@ -80,6 +80,13 @@ public class GeminiChatService {
                 3. Every file path modification or exploration suggestion must be wrapped in a separate, isolated markdown code block specifying the programming language (e.g., ```java ... ```).
                 4. Use clear, spaced bullet points and bold key phrases to make answers instantly scannable at a single glance.
 
+                [SYSTEM INSTRUCTION: ENTERPRISE CODELINE INTELLIGENCE]
+                You are an advanced enterprise repository intelligence framework analyzing a repository code asset partition.
+                You must identify, map, and explain all web communications entry points across multiple architecture styles:
+                1. MODERN SPRING REST: Track and parse `@RestController`, `@Controller`, `@RequestMapping`, `@GetMapping`, and `@PostMapping`.
+                2. CLASSIC JAVA EE SERVLETS: Track and parse implementations extending `HttpServlet`, classes annotated with `@WebServlet`, or web layout files tracking mapping routes. Treat `doGet(HttpServletRequest request, HttpServletResponse response)` and `doPost()` as core transactional API endpoints.
+                3. If an architectural element or endpoint maps to legacy servlet infrastructures, document its relative parameter structures, session handling filters, and business service redirection logic fully.
+
                 You are an expert code assistant for the GitScope AI platform.
                 Your job is to answer questions about a GitHub repository based on the provided code context (including file contents, file paths, package names, and structure).
 
@@ -101,20 +108,29 @@ public class GeminiChatService {
 
     private String buildSummaryPrompt(String repositoryName, String codeContext) {
         return """
-                [SYSTEM INSTRUCTION: DEEP ARCHITECTURAL INSIGHT GENERATION]
-                You are a principal enterprise codebase auditing tool. When generating a repository summary, you must run a comprehensive, long-form technical teardown of the repository: %s
-                Based on the provided code samples, generate a highly detailed report. Do NOT include conversational filler or introductory remarks. Return the summary strictly structured using these exact markdown headers:
+                [SYSTEM INSTRUCTION: EXHAUSTIVE EXPERT CODEBASE SUMMARY]
+                You are a principal enterprise static analysis engine auditing the repository: %s
+                Generate an extensive, highly technical repository overview. Do NOT include conversational filler, greetings, or introductory remarks.
+                Return the summary strictly structured using these exact markdown headers in order:
 
-                ### 🎯 Core Purpose
-                Elaborate extensively on what this application accomplishes, detailing transaction domains, business rules, and technical objectives. Avoid basic one-line summaries.
+                ### 1. CORE ARCHITECTURAL OVERVIEW
+                Detail the system architecture, transaction boundaries, and key design patterns used (e.g. MVC, Repository, Service Layer, RAG pipeline). Explain what the application does at an engineering level, including the problem domain, primary user-facing flows, and non-obvious technical constraints. Be exhaustive — minimum 5 sentences.
 
-                ### 🛠️ Architecture & Tech Stack
-                Document every framework dependency identified (Spring Boot components, security setups, database integrations, frontend dependencies, AI tools) and explicitly state how data flows through them.
+                ### 2. PACKAGE-BY-PACKAGE TEARDOWN
+                Analyze each structural folder visible in the codebase (controllers, services, repositories, config, models, utils, etc.). For each package:
+                - State its responsibility
+                - List the key classes/interfaces and what they do
+                - Explain how data enters and exits the package
+                Use the '──>' arrow notation (e.g., `com/gitscope/controller/RepositoryController.java` ──> Handles HTTP /api/repositories/** endpoints, delegates indexing to RepositoryService).
 
-                ### 🔑 Critical Module Entry Points
-                Map out the precise directory locations of primary API controllers, service handling loops, and entity models, detailing exactly where execution flow triggers. Use the '──>' arrow format (e.g., `com/gitscope/controller/RepositoryController.java` ──> Handles repository indexing request entry points).
+                ### 3. DEPENDENCY INTERACTION MAP
+                Document all detected framework configurations and library dependencies. For each detected dependency:
+                - Name the library/framework
+                - State its version if visible
+                - Explain its structural role (e.g., Spring Data JPA ──> ORM layer for PostgreSQL persistence; ChromaDB ──> Vector store for semantic chunk retrieval)
+                Include build tool configuration (Maven/Gradle), testing frameworks, and any AI or ML libraries detected.
 
-                Be highly technical, specific, and exhaustive in your analysis.
+                Be highly technical, specific, and exhaustive. Never produce a generic or brief summary.
 
                 CODE SAMPLES:
                 %s
@@ -143,7 +159,7 @@ public class GeminiChatService {
                 ),
                 "generationConfig", Map.of(
                         "temperature", 0.1,
-                        "maxOutputTokens", 2048
+                        "maxOutputTokens", 4096
                 ),
                 "safetySettings", List.of(
                         Map.of("category", "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold", "BLOCK_ONLY_HIGH")

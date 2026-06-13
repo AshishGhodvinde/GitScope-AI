@@ -104,7 +104,7 @@ public class VectorStoreService {
      * @param chunks        list of code chunks
      * @param embeddings    corresponding embedding vectors
      */
-    public void upsertChunks(String collectionId, List<CodeChunk> chunks, List<List<Double>> embeddings) {
+    public void upsertChunks(String collectionId, Long repositoryId, List<CodeChunk> chunks, List<List<Double>> embeddings) {
         String url = collectionsUrl() + "/" + collectionId + "/upsert";
 
         List<String> ids = new ArrayList<>();
@@ -120,6 +120,7 @@ public class VectorStoreService {
             metadata.put("filePath", chunk.getFilePath());
             metadata.put("language", chunk.getLanguage());
             metadata.put("chunkType", chunk.getChunkType());
+            metadata.put("repository_id", String.valueOf(repositoryId));
             if (chunk.getClassName()  != null) metadata.put("className",  chunk.getClassName());
             if (chunk.getMethodName() != null) metadata.put("methodName", chunk.getMethodName());
             metadatas.add(metadata);
@@ -157,12 +158,13 @@ public class VectorStoreService {
      * @param topK           number of results to return
      * @return list of matching chunks as search results
      */
-    public List<SearchResult> query(String collectionId, List<Double> queryEmbedding, int topK) {
+    public List<SearchResult> query(String collectionId, List<Double> queryEmbedding, int topK, Long repositoryId) {
         String url = collectionsUrl() + "/" + collectionId + "/query";
 
         Map<String, Object> body = Map.of(
                 "query_embeddings", List.of(queryEmbedding),
                 "n_results",        topK,
+                "where",            Map.of("repository_id", String.valueOf(repositoryId)),
                 "include",          List.of("documents", "metadatas", "distances")
         );
 

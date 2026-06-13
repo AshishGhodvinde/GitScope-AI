@@ -2,6 +2,7 @@ package com.gitscope.service;
 
 import com.gitscope.dto.*;
 import com.gitscope.embedding.LocalEmbeddingService;
+import com.gitscope.entity.FileEntity;
 import com.gitscope.entity.RepositoryEntity;
 import com.gitscope.entity.RepositoryEntity.IndexStatus;
 import com.gitscope.exception.RepositoryIndexingException;
@@ -10,6 +11,7 @@ import com.gitscope.github.ChunkingService;
 import com.gitscope.github.CodeChunk;
 import com.gitscope.github.GitHubService;
 import com.gitscope.rag.GeminiChatService;
+import com.gitscope.repository.FileRepository;
 import com.gitscope.repository.RepositoryJpaRepository;
 import com.gitscope.vectorstore.VectorStoreService;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +41,7 @@ public class RepositoryService {
     private final VectorStoreService vectorStoreService;
     private final GeminiChatService geminiChatService;
     private final RepositoryJpaRepository repositoryJpaRepository;
+    private final FileRepository fileRepository;
 
     public RepositoryService(
             GitHubService gitHubService,
@@ -46,7 +49,8 @@ public class RepositoryService {
             LocalEmbeddingService embeddingService,
             VectorStoreService vectorStoreService,
             GeminiChatService geminiChatService,
-            RepositoryJpaRepository repositoryJpaRepository
+            RepositoryJpaRepository repositoryJpaRepository,
+            FileRepository fileRepository
     ) {
         this.gitHubService = gitHubService;
         this.chunkingService = chunkingService;
@@ -54,6 +58,7 @@ public class RepositoryService {
         this.vectorStoreService = vectorStoreService;
         this.geminiChatService = geminiChatService;
         this.repositoryJpaRepository = repositoryJpaRepository;
+        this.fileRepository = fileRepository;
     }
 
     /**
@@ -77,6 +82,7 @@ public class RepositoryService {
             if (entity.getChromaCollectionId() != null) {
                 vectorStoreService.deleteCollection(entity.getChromaCollectionId());
             }
+            fileRepository.deleteByRepositoryId(entity.getId());
             entity.setStatus(IndexStatus.INDEXING);
             entity.setIndexedAt(LocalDateTime.now());
             entity.setSummary(null); // Clear cached summary on re-index
@@ -128,8 +134,19 @@ public class RepositoryService {
             String collectionName = "repo_" + entity.getId();
             String collectionId = vectorStoreService.getOrCreateCollection(collectionName);
 
+            // Relational DB Cache for files list explorer
+            fileRepository.deleteByRepositoryId(entity.getId()); // In case of re-index or overlapping data
+            List<FileEntity> fileEntities = new ArrayList<>();
+            for (String path : allFilePaths) {
+                fileEntities.add(FileEntity.builder()
+                        .repositoryId(entity.getId())
+                        .path(path)
+                        .build());
+            }
+            fileRepository.saveAll(fileEntities);
+
             // Step 5: Embed and upsert in batches
-            embedAndStore(nonBlankChunks, collectionId);
+            embedAndStore(nonBlankChunks, collectionId, entity.getId());
 
             // Step 6: Update entity with final stats
             entity.setFileCount(sourceFiles.size());
@@ -194,7 +211,7 @@ public class RepositoryService {
         List<Double> queryVector = embeddingService.toDoubleList(queryEmbedding);
 
         List<VectorStoreService.SearchResult> results = vectorStoreService.query(
-                entity.getChromaCollectionId(), queryVector, 10);
+                entity.getChromaCollectionId(), queryVector, 10, entity.getId());
 
         String codeContext = results.stream()
                 .map(r -> "File: " + r.filePath() + "\n" + r.content())
@@ -212,28 +229,11 @@ public class RepositoryService {
     /**
      * Returns the list of all indexed file paths for the repository.
      */
-    public FileListResponse getFiles(Long id) {
-        RepositoryEntity entity = repositoryJpaRepository.findById(id)
+    public List<FileEntity> getFiles(Long id) {
+        // Validate repository exists
+        repositoryJpaRepository.findById(id)
                 .orElseThrow(() -> new RepositoryNotFoundException(id));
-
-        if (entity.getChromaCollectionId() == null) {
-            return new FileListResponse(id, entity.getName(), List.of(), 0);
-        }
-
-        // Query with a broad embedding to collect file paths
-        float[] embedding = embeddingService.getEmbedding("source code files");
-        List<Double> vector = embeddingService.toDoubleList(embedding);
-
-        List<VectorStoreService.SearchResult> results = vectorStoreService.query(
-                entity.getChromaCollectionId(), vector, 50);
-
-        List<String> files = results.stream()
-                .map(VectorStoreService.SearchResult::filePath)
-                .distinct()
-                .sorted()
-                .toList();
-
-        return new FileListResponse(id, entity.getName(), files, entity.getFileCount());
+        return fileRepository.findByRepositoryId(id);
     }
 
     /**
@@ -249,7 +249,7 @@ public class RepositoryService {
     // Helpers
     // ─────────────────────────────────────────────────────────────────
 
-    private void embedAndStore(List<CodeChunk> chunks, String collectionId) {
+    private void embedAndStore(List<CodeChunk> chunks, String collectionId, Long repositoryId) {
         for (int i = 0; i < chunks.size(); i += BATCH_SIZE) {
             List<CodeChunk> batch = chunks.subList(i, Math.min(i + BATCH_SIZE, chunks.size()));
             List<String> contents = batch.stream().map(CodeChunk::getContent).collect(Collectors.toList());
@@ -272,7 +272,7 @@ public class RepositoryService {
                 embeddings.add(embeddingService.toDoubleList(emb));
             }
 
-            vectorStoreService.upsertChunks(collectionId, batch, embeddings);
+            vectorStoreService.upsertChunks(collectionId, repositoryId, batch, embeddings);
             log.info("Embedded and stored batch {}/{}", Math.min(i + BATCH_SIZE, chunks.size()), chunks.size());
         }
     }

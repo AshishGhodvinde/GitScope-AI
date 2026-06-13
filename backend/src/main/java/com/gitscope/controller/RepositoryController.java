@@ -1,6 +1,7 @@
 package com.gitscope.controller;
 
 import com.gitscope.dto.*;
+import com.gitscope.entity.FileEntity;
 import com.gitscope.service.RepositoryService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -71,7 +72,7 @@ public class RepositoryController {
      * Returns the list of all indexed file paths.
      */
     @GetMapping("/{id}/files")
-    public ResponseEntity<FileListResponse> getFiles(@PathVariable Long id) {
+    public ResponseEntity<List<FileEntity>> getRepositoryFiles(@PathVariable Long id) {
         return ResponseEntity.ok(repositoryService.getFiles(id));
     }
 }

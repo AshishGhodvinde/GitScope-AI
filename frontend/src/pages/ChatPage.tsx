@@ -6,7 +6,8 @@ import type { ChatMessage } from '../types';
 import { ChatMessage as ChatMessageComponent } from '../components/ChatMessage';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { useToast } from '../context/ToastContext';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import type { Variants } from 'framer-motion';
 import type { WorkspaceContextType } from '../components/WorkspaceLayout';
 
 const SUGGESTED_QUESTIONS = [
@@ -17,6 +18,20 @@ const SUGGESTED_QUESTIONS = [
   'How does error handling work?',
   'What dependencies does this project use?',
 ];
+
+const cardVariants: Variants = {
+  hidden:  { opacity: 0, y: 12 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { type: 'spring' as const, stiffness: 260, damping: 28, delay: i * 0.05 },
+  }),
+};
+
+const msgVariants: Variants = {
+  hidden:  { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 280, damping: 30 } },
+};
 
 export function ChatPage() {
   const {
@@ -29,23 +44,21 @@ export function ChatPage() {
   const { error: showError } = useToast();
   const repoId = repo?.id ?? 0;
 
-  const [messages, setMessages]       = useState<ChatMessage[]>([]);
-  const [input, setInput]             = useState('');
-  const [sending, setSending]         = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput]       = useState('');
+  const [sending, setSending]   = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll
+  // Auto-scroll to latest message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Load query from history click in operational panel
+  // Load query from history click in left panel
   useEffect(() => {
     if (!selectHistoryEntry) return;
-
-    // Check if this query is already loaded to prevent duplicate appends
     const exists = messages.some(m => m.id === `h-a-${selectHistoryEntry.id}`);
     if (!exists) {
       setMessages(prev => [
@@ -65,7 +78,6 @@ export function ChatPage() {
         },
       ]);
     }
-    // Reset selection in context
     setSelectHistoryEntry(null);
   }, [selectHistoryEntry, messages, setSelectHistoryEntry]);
 
@@ -144,10 +156,10 @@ export function ChatPage() {
         }
       }
 
-      // Fetch citations from history & refresh left column history list
+      // Fetch citations & refresh history
       try {
         const historyData = await getChatHistory(repoId);
-        await fetchHistory(); // refresh context history
+        await fetchHistory();
         if (historyData.length > 0) {
           const latestEntry = historyData[0];
           setMessages(prev =>
@@ -162,7 +174,9 @@ export function ChatPage() {
       const msg = err instanceof Error ? err.message : 'Timeout or API service unavailable.';
       setMessages(prev =>
         prev.map(m =>
-          m.id === loadingMsg.id ? { ...m, content: `Connection error: ${msg}`, isLoading: false } : m
+          m.id === loadingMsg.id
+            ? { ...m, content: `Connection error: ${msg}`, isLoading: false }
+            : m
         )
       );
       showError('Network Error', msg);
@@ -176,140 +190,141 @@ export function ChatPage() {
   };
 
   const handleFormSubmit = (e: React.FormEvent) => { e.preventDefault(); handleSend(input); };
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(input); }
   };
-
   const clearMessages = () => setMessages([]);
 
   if (!repo) return null;
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.985 }}
+      initial={{ opacity: 0, scale: 0.99 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 220, damping: 26 }}
-      className="flex-1 flex h-full overflow-hidden"
+      transition={{ type: 'spring', stiffness: 260, damping: 28 }}
+      className="w-full flex-1 min-w-0 flex h-full overflow-hidden"
     >
-
       {/* ── Main thread panel ── */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative bg-[color:var(--canvas-bg)]">
+      <div className="w-full flex-1 min-w-0 flex flex-col h-full overflow-hidden bg-[color:var(--canvas-bg)]">
 
         {/* Sub-header */}
         <div
           className="h-12 px-5 flex items-center justify-between shrink-0 select-none border-b"
-          style={{
-            borderColor: 'var(--divider)',
-            background: 'var(--glass-sidebar)',
-          }}
+          style={{ borderColor: 'var(--divider)', background: 'var(--glass-bg)' }}
         >
           <div className="flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
-            <h1
-              className="text-[11px] font-semibold uppercase tracking-widest text-[color:var(--text-secondary)]"
-            >
+            <span className="w-1.5 h-1.5 rounded-full animate-dot-blink" style={{ background: 'var(--accent)' }} />
+            <h1 className="text-[11px] font-semibold uppercase tracking-widest text-[color:var(--text-secondary)]">
               Interactive Chat Session
             </h1>
           </div>
+          <button
+            id="clear-chat"
+            onClick={clearMessages}
+            className="btn-secondary !px-2.5 !py-1.5 !text-xs"
+            title="Clear chat"
+            disabled={messages.length === 0}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              id="clear-chat"
-              onClick={clearMessages}
-              className="btn-secondary !px-2.5 !py-1.5 !text-xs"
-              title="Clear chat"
-              disabled={messages.length === 0}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+        {/* ── Message scroll area — GPU optimized ── */}
+        <div className="w-full flex-1 min-w-0 flex flex-col bg-[#101411] overflow-hidden">
+          <div className="chat-scroll-zone flex-1 overflow-y-auto px-8 py-6 w-full min-w-0">
+            {messages.length === 0 ? (
+              /* Empty state */
+              <div className="flex flex-col items-center justify-center min-h-[65%] gap-8 w-full min-w-0">
+                <div
+                  className="w-14 h-14 rounded-2xl flex items-center justify-center border"
+                  style={{ background: 'var(--glass-bg)', borderColor: 'var(--accent)', boxShadow: '0 0 24px var(--accent-glow)' }}
+                >
+                  <Bot className="w-7 h-7" style={{ color: 'var(--accent)' }} />
+                </div>
+
+                <div className="text-center max-w-sm min-w-0 w-full">
+                  <h2 className="text-sm font-semibold mb-1 text-[color:var(--text-primary)]">
+                    Ask GitScope Assistant
+                  </h2>
+                  <p className="text-xs leading-relaxed text-[color:var(--text-muted)]">
+                    Query codebase relationships, entry routers, database schemas, or controller configurations.
+                  </p>
+                </div>
+
+                <div className="w-full max-w-2xl min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {SUGGESTED_QUESTIONS.map((q, i) => (
+                    <motion.button
+                      key={q}
+                      custom={i}
+                      initial="hidden"
+                      animate="visible"
+                      variants={cardVariants}
+                      onClick={() => handleSend(q)}
+                      disabled={sending}
+                      className="text-left p-3.5 rounded-xl transition-all text-xs leading-normal flex flex-col justify-between h-[72px] group cursor-pointer border w-full min-w-0"
+                      style={{
+                        background: 'var(--glass-bg)',
+                        borderColor: 'var(--divider)',
+                        color: 'var(--text-muted)',
+                      }}
+                      onMouseEnter={e => {
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)';
+                        (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)';
+                        (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 12px var(--accent-glow)';
+                      }}
+                      onMouseLeave={e => {
+                        (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--divider)';
+                        (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)';
+                        (e.currentTarget as HTMLButtonElement).style.boxShadow = '';
+                      }}
+                    >
+                      <span className="break-words min-w-0 w-full">{q}</span>
+                      <span className="text-[10px] flex items-center gap-1 mt-2 font-mono" style={{ color: 'var(--accent)', opacity: 0.7 }}>
+                        Query <CornerDownLeft className="w-2.5 h-2.5" />
+                      </span>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="max-w-4xl mx-auto w-full min-w-0 prose prose-invert break-words text-wrap space-y-8">
+                <AnimatePresence initial={false}>
+                  {messages.map(msg => (
+                    <motion.div
+                      key={msg.id}
+                      variants={msgVariants}
+                      initial="hidden"
+                      animate="visible"
+                      className="w-full min-w-0"
+                    >
+                      <ChatMessageComponent message={msg} />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
+            <div ref={bottomRef} />
           </div>
         </div>
 
-        {/* Message scroll area (GPU scroll optimized) */}
-        <div className="flex-1 chat-scroll-zone px-4 md:px-12 py-8 space-y-8 scrollbar-hide">
-          {messages.length === 0 ? (
-            /* Empty state */
-            <div className="flex flex-col items-center justify-center min-h-[65%] gap-8">
-              <div
-                className="w-12 h-12 rounded-2xl flex items-center justify-center border"
-                style={{
-                  background: 'var(--glass-bg)',
-                  borderColor: 'var(--divider)',
-                }}
-              >
-                <Bot className="w-6 h-6 text-[color:var(--accent)]" />
-              </div>
-
-              <div className="text-center max-w-sm">
-                <h2 className="text-sm font-semibold mb-1 text-[color:var(--text-primary)]">
-                  Ask GitScope Assistant
-                </h2>
-                <p className="text-xs leading-relaxed text-[color:var(--text-muted)]">
-                  Query codebase relationships, entry routers, database schemas, or controller configurations.
-                </p>
-              </div>
-
-              <motion.div
-                initial="hidden"
-                animate="visible"
-                variants={{
-                  hidden: { opacity: 0 },
-                  visible: { opacity: 1, transition: { staggerChildren: 0.04 } }
-                }}
-                className="w-full max-w-2xl grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2"
-              >
-                {SUGGESTED_QUESTIONS.map(q => (
-                  <motion.button
-                    key={q}
-                    onClick={() => handleSend(q)}
-                    disabled={sending}
-                    variants={{
-                      hidden: { opacity: 0, y: 12 },
-                      visible: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 220, damping: 26 } }
-                    }}
-                    className="text-left p-3.5 rounded-xl transition-all text-xs leading-normal flex flex-col justify-between h-[72px] group cursor-pointer border bg-[color:var(--glass-bg)] text-[color:var(--text-muted)] hover:text-[color:var(--text-primary)] hover:border-[color:var(--accent)]"
-                    style={{ borderColor: 'var(--divider)' }}
-                  >
-                    <span>{q}</span>
-                    <span
-                      className="text-[10px] flex items-center gap-1 mt-2 font-mono"
-                      style={{ color: 'var(--text-muted)', opacity: 0.6 }}
-                    >
-                      Query <CornerDownLeft className="w-2.5 h-2.5" />
-                    </span>
-                  </motion.button>
-                ))}
-              </motion.div>
-            </div>
-          ) : (
-            <div className="max-w-4xl mx-auto space-y-8">
-              {messages.map(msg => (
-                <ChatMessageComponent key={msg.id} message={msg} />
-              ))}
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        {/* ── Floating capsule input dock ── */}
-        <div className="px-4 pb-6 flex justify-center shrink-0 select-none bg-[color:var(--canvas-bg)]">
+        {/* ── Floating input dock ── */}
+        <div className="px-4 pb-6 flex justify-center shrink-0 select-none bg-[color:var(--canvas-bg)] w-full min-w-0">
           <motion.div
             initial={{ y: 25, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            transition={{ type: 'spring', stiffness: 220, damping: 26, delay: 0.12 }}
-            className="w-full max-w-3xl"
+            transition={{ type: 'spring', stiffness: 260, damping: 28, delay: 0.1 }}
+            className="w-full max-w-3xl min-w-0"
           >
             <form
               onSubmit={handleFormSubmit}
-              className="relative flex items-center rounded-2xl shadow-xl overflow-hidden transition-all border bg-[color:var(--glass-bg)]"
-              style={{ borderColor: 'var(--divider)' }}
+              className="relative flex items-center rounded-2xl shadow-xl overflow-hidden transition-all border"
+              style={{ borderColor: 'var(--divider)', background: 'var(--glass-bg)' }}
               onFocus={e => {
                 (e.currentTarget as HTMLFormElement).style.borderColor = 'var(--accent)';
-                (e.currentTarget as HTMLFormElement).style.boxShadow = '0 0 0 3px rgba(88, 166, 255, 0.15)';
+                (e.currentTarget as HTMLFormElement).style.boxShadow = '0 0 0 3px var(--accent-glow)';
               }}
               onBlur={e => {
-                (e.currentTarget as HTMLFormElement).style.borderColor = '';
+                (e.currentTarget as HTMLFormElement).style.borderColor = 'var(--divider)';
                 (e.currentTarget as HTMLFormElement).style.boxShadow = '';
               }}
             >
@@ -322,20 +337,15 @@ export function ChatPage() {
                 placeholder={`Query codebase details about ${repo.name}…`}
                 rows={1}
                 disabled={sending}
-                className="flex-1 pl-4 pr-3 py-3.5 bg-transparent text-sm focus:outline-none resize-none max-h-[180px] leading-relaxed text-[color:var(--text-primary)]"
-                style={{
-                  caretColor: 'var(--accent)',
-                }}
+                className="flex-1 min-w-0 pl-4 pr-3 py-3.5 bg-transparent text-sm focus:outline-none resize-none max-h-[180px] leading-relaxed text-[color:var(--text-primary)]"
+                style={{ caretColor: 'var(--accent)' }}
                 onInput={e => {
                   const el = e.currentTarget;
                   el.style.height = 'auto';
                   el.style.height = Math.min(el.scrollHeight, 180) + 'px';
                 }}
               />
-
-              {/* Right actions: send */}
               <div className="flex items-center gap-1 pr-3 shrink-0">
-                {/* Send button */}
                 <button
                   id="send-message"
                   type="submit"

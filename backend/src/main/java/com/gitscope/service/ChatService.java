@@ -19,6 +19,9 @@ import com.gitscope.vectorstore.VectorStoreService;
 import com.gitscope.vectorstore.VectorStoreService.SearchResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.filter.Filter;
+import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -92,9 +95,21 @@ public class ChatService {
         float[] questionEmbedding = embeddingService.getEmbedding(request.question());
         List<Double> questionVector = embeddingService.toDoubleList(questionEmbedding);
 
+        // Enforce an absolute metadata boundary condition for this specific repository
+        Filter.Expression metaFilter = new FilterExpressionBuilder()
+                .eq("repository_id", String.valueOf(repo.getId()))
+                .build();
+
+        SearchRequest searchRequest = SearchRequest.builder()
+                .query(request.question())
+                .topK(8) // Pull top 8 relevant chunks
+                .filterExpression(metaFilter) // CRITICAL: Isolates search strictly to this repo
+                .similarityThreshold(0.5)
+                .build();
+
         // Step 2: Retrieve top-8 similar chunks from ChromaDB (Dense Vector Search)
         List<SearchResult> semanticChunks = vectorStoreService.query(
-                repo.getChromaCollectionId(), questionVector, 8);
+                repo.getChromaCollectionId(), questionVector, 8, repo.getId());
 
         // Step 3: Retrieve top-4 exact matches from PostgreSQL cache (Lexical Search)
         List<String> keywords = extractKeywords(request.question());
@@ -178,9 +193,21 @@ public class ChatService {
         float[] questionEmbedding = embeddingService.getEmbedding(request.question());
         List<Double> questionVector = embeddingService.toDoubleList(questionEmbedding);
 
+        // Enforce an absolute metadata boundary condition for this specific repository
+        Filter.Expression metaFilter = new FilterExpressionBuilder()
+                .eq("repository_id", String.valueOf(repo.getId()))
+                .build();
+
+        SearchRequest searchRequest = SearchRequest.builder()
+                .query(request.question())
+                .topK(8) // Pull top 8 relevant chunks
+                .filterExpression(metaFilter) // CRITICAL: Isolates search strictly to this repo
+                .similarityThreshold(0.5)
+                .build();
+
         // Step 2: Retrieve top-8 similar chunks from ChromaDB (Dense Vector Search)
         List<SearchResult> semanticChunks = vectorStoreService.query(
-                repo.getChromaCollectionId(), questionVector, 8);
+                repo.getChromaCollectionId(), questionVector, 8, repo.getId());
 
         // Step 3: Retrieve top-4 exact matches from PostgreSQL cache (Lexical Search)
         List<String> keywords = extractKeywords(request.question());

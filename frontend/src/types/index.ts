@@ -37,6 +37,12 @@ export interface FileListResponse {
   totalFiles: number;
 }
 
+export interface FileEntity {
+  id: number;
+  repositoryId: number;
+  path: string;
+}
+
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
 export interface SearchResult {
