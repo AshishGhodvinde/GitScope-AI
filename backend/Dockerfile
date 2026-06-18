@@ -1,9 +1,11 @@
-# ─── Runtime-only stage (JAR pre-built locally) ───────────────────────────────
-FROM eclipse-temurin:21-jre AS runtime
+FROM maven:3.9.6-eclipse-temurin-21 AS build
+WORKDIR /app
+COPY . .
+RUN mvn clean package -DskipTests
 
+FROM eclipse-temurin:21-jre AS runtime
 WORKDIR /app
 
-# Install git for repository cloning and setup non-root user
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/* \
     && groupadd -r gitscope && useradd -r -g gitscope -m -d /home/gitscope gitscope \
     && mkdir -p /app/tmp/repos \
@@ -11,17 +13,13 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/* \
 
 USER gitscope
 
-# Copy the pre-built jar
-COPY --chown=gitscope:gitscope target/gitscope-backend-1.0.0.jar app.jar
+COPY --from=build --chown=gitscope:gitscope /app/target/*.jar app.jar
 
-# Expose the Spring Boot port
 EXPOSE 8080
 
-# Health check — check port 8080 is listening (actuator not included)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD bash -c 'echo > /dev/tcp/localhost/8080 || exit 1'
 
-# Run the application
 ENTRYPOINT ["java", \
   "-XX:+UseContainerSupport", \
   "-XX:MaxRAMPercentage=75.0", \
