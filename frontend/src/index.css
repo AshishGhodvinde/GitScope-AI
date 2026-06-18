@@ -2,43 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── CSS Design Tokens — GitHub Brand Toolkit ─────────────────────────────── */
 :root {
-  /* Canvas — Official GitHub Process Black */
+  
   --canvas-bg:      #101411;
-  /* Panel surfaces */
+  
   --glass-bg:       #161b22;
   --glass-sidebar:  #161b22;
-  /* Borders */
+  
   --glass-border:   #30363d;
   --glass-border-h: #8b949e;
-  /* Text */
+  
   --text-primary:   #c9d1d9;
   --text-secondary: #8b949e;
   --text-muted:     #484f58;
-  /* Accent — Authentic GitHub Green */
+  
   --accent:         #0fbf3e;
   --accent-hover:   #08872b;
   --accent-glow:    rgba(15, 191, 62, 0.18);
-  /* Code */
+  
   --code-bg:        #0d1117;
   --code-header:    #161b22;
   --code-border:    #30363d;
-  /* Input */
+  
   --input-bg:       #0d1117;
   --input-border:   #30363d;
-  /* Divider */
+  
   --divider:        #21262d;
   --filetree-guide: #30363d;
 
-  /* Shifting Mesh Light Fields (Dark Mode default) */
   --mesh-color-1:   radial-gradient(circle, rgba(30, 41, 99, 0.95) 0%, rgba(30, 41, 99, 0) 70%);
   --mesh-color-2:   radial-gradient(circle, rgba(154, 52, 18, 0.7) 0%, rgba(154, 52, 18, 0) 70%);
   --mesh-color-3:   radial-gradient(circle, rgba(17, 94, 89, 0.75) 0%, rgba(17, 94, 89, 0) 70%);
   --mesh-color-4:   radial-gradient(circle, rgba(99, 102, 241, 0.6) 0%, rgba(99, 102, 241, 0) 70%);
 }
 
-/* Light mode token overrides */
 :root.light-mode {
   --canvas-bg:      #ffffff;
   --glass-bg:       #f6f8fa;
@@ -59,14 +56,12 @@
   --divider:        #d0d7de;
   --filetree-guide: #d0d7de;
 
-  /* Shifting Mesh Light Fields (Light Mode overrides) */
   --mesh-color-1:   radial-gradient(circle, rgba(224, 242, 254, 0.95) 0%, rgba(224, 242, 254, 0) 70%);
   --mesh-color-2:   radial-gradient(circle, rgba(255, 247, 237, 0.95) 0%, rgba(255, 247, 237, 0) 70%);
   --mesh-color-3:   radial-gradient(circle, rgba(252, 231, 243, 0.85) 0%, rgba(252, 231, 243, 0) 70%);
   --mesh-color-4:   radial-gradient(circle, rgba(199, 210, 254, 0.8) 0%, rgba(199, 210, 254, 0) 70%);
 }
 
-/* ── Base Layer ─────────────────────────────────────────────────────────────── */
 @layer base {
   * {
     box-sizing: border-box;
@@ -88,7 +83,6 @@
     transition: background 0.4s ease, color 0.3s ease;
   }
 
-  /* Green-tinted thin scrollbar */
   ::-webkit-scrollbar        { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track  { background: transparent; }
   ::-webkit-scrollbar-thumb  { background: #21262d; border-radius: 99px; }
@@ -100,10 +94,8 @@
   }
 }
 
-/* ── Component Layer ─────────────────────────────────────────────────────────── */
 @layer components {
 
-  /* ── Glass panels ── */
   .glass-panel {
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
@@ -140,7 +132,6 @@
     background: rgba(26, 127, 55, 0.04);
   }
 
-  /* ── Gradient text — GitHub green tint ── */
   .gradient-text {
     background: linear-gradient(135deg, #e6edf3 0%, #c9d1d9 50%, #0fbf3e 100%);
     -webkit-background-clip: text;
@@ -155,12 +146,10 @@
     background-clip: text;
   }
 
-  /* ── Green accent glow text ── */
   .accent-text {
     color: var(--accent);
   }
 
-  /* ── Buttons ── */
   .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -213,7 +202,6 @@
     cursor: not-allowed;
   }
 
-  /* ── Input ── */
   .input-field {
     width: 100%;
     padding: 0.625rem 1rem;
@@ -232,7 +220,6 @@
     box-shadow: 0 0 0 3px var(--accent-glow);
   }
 
-  /* ── Badge ── */
   .badge {
     display: inline-flex;
     align-items: center;
@@ -250,7 +237,6 @@
   .badge-blue   { background: rgba(88,166,255,0.10);   color: #58a6ff; border-color: rgba(88,166,255,0.25); }
   .badge-purple { background: rgba(188,140,255,0.10);  color: #bc8cff; border-color: rgba(188,140,255,0.25); }
 
-  /* ── Source file badge (pill chip) ── */
   .source-chip {
     display: inline-flex;
     align-items: center;
@@ -273,7 +259,6 @@
     transform: translateY(-1px);
   }
 
-  /* ── Legacy source-badge kept for compat ── */
   .source-badge {
     display: inline-flex;
     align-items: center;
@@ -294,7 +279,6 @@
     color: var(--text-primary);
   }
 
-  /* ── Skeleton shimmer ── */
   .skeleton {
     background: var(--glass-bg);
     border-radius: 0.5rem;
@@ -310,7 +294,6 @@
     animation: shimmer 2s linear infinite;
   }
 
-  /* ── Nav item ── */
   .nav-item {
     display: flex;
     align-items: center;
@@ -348,7 +331,6 @@
   }
 }
 
-/* ── Utility Layer ─────────────────────────────────────────────────────────── */
 @layer utilities {
   .bg-dots {
     background-image: radial-gradient(rgba(15, 191, 62, 0.06) 1px, transparent 1px);
@@ -368,12 +350,10 @@
   }
   .scrollbar-hide::-webkit-scrollbar { display: none; }
 
-  /* Thin custom scrollbar */
   .scrollbar-thin::-webkit-scrollbar { width: 3px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
   .scrollbar-thin::-webkit-scrollbar-thumb { background: #21262d; border-radius: 99px; }
 
-  /* ── GPU Scroll Acceleration ── */
   .chat-scroll-zone {
     overflow-y: auto;
     will-change: transform;
@@ -382,19 +362,16 @@
     scrollbar-width: thin;
   }
 
-  /* ── GPU Composited Layer ── */
   .gpu-layer {
     will-change: transform;
     contain: strict;
     transform: translateZ(0);
   }
 
-  /* ── Green glow ring ── */
   .glow-ring {
     box-shadow: 0 0 0 1px rgba(15, 191, 62, 0.3), 0 0 20px rgba(15, 191, 62, 0.12);
   }
 
-  /* ── Orb / ambient background ── */
   .orb {
     position: absolute;
     border-radius: 50%;
@@ -404,7 +381,6 @@
   }
 }
 
-/* ── Keyframe Animations ─────────────────────────────────────────────────── */
 @keyframes shimmer {
   from { background-position: -200% 0; }
   to   { background-position:  200% 0; }
@@ -476,7 +452,6 @@
 .animate-orb  { animation: orbFloat 12s ease-in-out infinite; }
 .animate-dot-blink { animation: dotBlink 1.4s ease-in-out infinite; }
 
-/* ── Liquid Aurora background (moving mesh colors) ── */
 .hero-section {
   position: relative;
   background: var(--canvas-bg);
@@ -515,7 +490,7 @@
   left: -15%;
   background: var(--mesh-color-1);
   animation: meshDrift1 32s ease-in-out infinite alternate;
-  opacity: 0.85; /* Increased opacity for more attractive look */
+  opacity: 0.85; 
 }
 
 .liquid-shape.shape-2 {
@@ -525,7 +500,7 @@
   right: -10%;
   background: var(--mesh-color-2);
   animation: meshDrift2 38s ease-in-out infinite alternate;
-  opacity: 0.65; /* Increased opacity */
+  opacity: 0.65; 
 }
 
 .liquid-shape.shape-3 {
@@ -535,10 +510,9 @@
   left: 30%;
   background: var(--mesh-color-3);
   animation: meshDrift3 44s ease-in-out infinite alternate;
-  opacity: 0.75; /* Increased opacity */
+  opacity: 0.75; 
 }
 
-/* ── Markdown Prose ─────────────────────────────────────────────────────── */
 .markdown-body {
   color: var(--text-secondary);
   line-height: 1.75;
@@ -580,7 +554,6 @@
 .markdown-body ul > li { list-style-type: disc; }
 .markdown-body ol > li { list-style-type: decimal; }
 
-/* Inline code */
 .markdown-body code {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.78rem;
@@ -592,7 +565,6 @@
   word-break: break-all;
 }
 
-/* Pre code block */
 .markdown-body pre {
   background: var(--code-bg);
   border-radius: 0.75rem;
@@ -661,7 +633,6 @@
   background: rgba(15, 191, 62, 0.03);
 }
 
-/* ── AI Summary Layout (dense high-info) ──────────────────────────────────── */
 .custom-summary-layout h3 {
   font-size: 0.7rem;
   font-weight: 700;
