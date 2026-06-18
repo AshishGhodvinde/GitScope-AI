@@ -25,15 +25,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Core service orchestrating the full repository indexing pipeline:
- * clone → scan → chunk → embed → store vectors → save metadata.
- */
 @Service
 @Slf4j
 public class RepositoryService {
 
-    private static final int BATCH_SIZE = 20; // Embed and upsert in batches
+    private static final int BATCH_SIZE = 20; 
 
     private final GitHubService gitHubService;
     private final ChunkingService chunkingService;
@@ -61,10 +57,6 @@ public class RepositoryService {
         this.fileRepository = fileRepository;
     }
 
-    /**
-     * Full indexing pipeline for a GitHub repository URL.
-     * Re-indexes if already indexed (deletes old vectors first).
-     */
     @Transactional
     public IndexRepositoryResponse indexRepository(IndexRepositoryRequest request) {
         String url = request.repositoryUrl().trim();
@@ -73,19 +65,18 @@ public class RepositoryService {
 
         log.info("Starting indexing for repository: {}/{}", owner, repoName);
 
-        // If already indexed, delete old vectors and update record
         RepositoryEntity entity;
         if (repositoryJpaRepository.existsByUrl(url)) {
             entity = repositoryJpaRepository.findByUrl(url)
                     .orElseThrow(() -> new RepositoryNotFoundException(url));
-            // Delete old ChromaDB collection
+            
             if (entity.getChromaCollectionId() != null) {
                 vectorStoreService.deleteCollection(entity.getChromaCollectionId());
             }
             fileRepository.deleteByRepositoryId(entity.getId());
             entity.setStatus(IndexStatus.INDEXING);
             entity.setIndexedAt(LocalDateTime.now());
-            entity.setSummary(null); // Clear cached summary on re-index
+            entity.setSummary(null); 
         } else {
             entity = RepositoryEntity.builder()
                     .name(repoName)
@@ -99,10 +90,9 @@ public class RepositoryService {
 
         File cloneDir = null;
         try {
-            // Step 1: Clone
+            
             cloneDir = gitHubService.cloneRepository(url);
 
-            // Step 2: Scan files
             List<File> scannedFiles = gitHubService.scanSourceFiles(cloneDir);
             List<String> scannedPaths = gitHubService.getRelativePaths(cloneDir, scannedFiles);
 
@@ -119,7 +109,6 @@ public class RepositoryService {
             }
             log.info("Found {} source files in {} (after filtering junk files)", sourceFiles.size(), repoName);
 
-            // Step 3: Chunk all files
             List<CodeChunk> allChunks = new ArrayList<>();
             for (int i = 0; i < sourceFiles.size(); i++) {
                 List<CodeChunk> fileChunks = chunkingService.chunkFile(sourceFiles.get(i), allFilePaths.get(i));
@@ -130,12 +119,10 @@ public class RepositoryService {
                     .collect(Collectors.toList());
             log.info("Generated {} chunks ({} non-blank) from {} files", allChunks.size(), nonBlankChunks.size(), sourceFiles.size());
 
-            // Step 4: Create ChromaDB collection
             String collectionName = "repo_" + entity.getId();
             String collectionId = vectorStoreService.getOrCreateCollection(collectionName);
 
-            // Relational DB Cache for files list explorer
-            fileRepository.deleteByRepositoryId(entity.getId()); // In case of re-index or overlapping data
+            fileRepository.deleteByRepositoryId(entity.getId()); 
             List<FileEntity> fileEntities = new ArrayList<>();
             for (String path : allFilePaths) {
                 fileEntities.add(FileEntity.builder()
@@ -145,10 +132,8 @@ public class RepositoryService {
             }
             fileRepository.saveAll(fileEntities);
 
-            // Step 5: Embed and upsert in batches
             embedAndStore(nonBlankChunks, collectionId, entity.getId());
 
-            // Step 6: Update entity with final stats
             entity.setFileCount(sourceFiles.size());
             entity.setChunkCount(nonBlankChunks.size());
             entity.setStatus(IndexStatus.INDEXED);
@@ -163,22 +148,19 @@ public class RepositoryService {
                     entity.getStatus().name(), entity.getFileCount(), entity.getChunkCount());
 
         } catch (Exception e) {
-            // Mark as failed
+            
             entity.setStatus(IndexStatus.FAILED);
             repositoryJpaRepository.save(entity);
             log.error("Indexing failed for {}: {}", url, e.getMessage(), e);
             throw new RepositoryIndexingException("Indexing failed: " + e.getMessage(), e);
         } finally {
-            // Always clean up cloned repository
+            
             if (cloneDir != null) {
                 gitHubService.cleanupDirectory(cloneDir);
             }
         }
     }
 
-    /**
-     * Returns basic metadata for a repository by ID.
-     */
     public RepositoryResponse getRepository(Long id) {
         RepositoryEntity entity = repositoryJpaRepository.findById(id)
                 .orElseThrow(() -> new RepositoryNotFoundException(id));
@@ -186,9 +168,6 @@ public class RepositoryService {
         return toResponse(entity);
     }
 
-    /**
-     * Generates an AI summary for the repository using representative chunks.
-     */
     public SummaryResponse getSummary(Long id) {
         RepositoryEntity entity = repositoryJpaRepository.findById(id)
                 .orElseThrow(() -> new RepositoryNotFoundException(id));
@@ -197,7 +176,6 @@ public class RepositoryService {
             throw new RepositoryIndexingException("Repository is not fully indexed yet. Status: " + entity.getStatus());
         }
 
-        // Return cached summary if available
         if (entity.getSummary() != null && !entity.getSummary().isBlank()) {
             log.info("Returning cached summary for repository: {}", entity.getName());
             return new SummaryResponse(entity.getId(), entity.getName(), entity.getSummary());
@@ -205,7 +183,6 @@ public class RepositoryService {
 
         log.info("Generating new summary via Gemini for repository: {}", entity.getName());
 
-        // Retrieve representative chunks for summary context
         float[] queryEmbedding = embeddingService.getEmbedding(
                 "project overview architecture purpose tech stack modules");
         List<Double> queryVector = embeddingService.toDoubleList(queryEmbedding);
@@ -219,35 +196,24 @@ public class RepositoryService {
 
         String summary = geminiChatService.generateSummary(entity.getName(), codeContext);
 
-        // Cache the summary in the database
         entity.setSummary(summary);
         repositoryJpaRepository.save(entity);
 
         return new SummaryResponse(entity.getId(), entity.getName(), summary);
     }
 
-    /**
-     * Returns the list of all indexed file paths for the repository.
-     */
     public List<FileEntity> getFiles(Long id) {
-        // Validate repository exists
+        
         repositoryJpaRepository.findById(id)
                 .orElseThrow(() -> new RepositoryNotFoundException(id));
         return fileRepository.findByRepositoryId(id);
     }
 
-    /**
-     * Returns all indexed repositories.
-     */
     public List<RepositoryResponse> getAllRepositories() {
         return repositoryJpaRepository.findAll().stream()
                 .map(this::toResponse)
                 .toList();
     }
-
-    // ─────────────────────────────────────────────────────────────────
-    // Helpers
-    // ─────────────────────────────────────────────────────────────────
 
     private void embedAndStore(List<CodeChunk> chunks, String collectionId, Long repositoryId) {
         for (int i = 0; i < chunks.size(); i += BATCH_SIZE) {
@@ -256,7 +222,7 @@ public class RepositoryService {
 
             List<float[]> rawEmbeddings;
             try {
-                // Fetch/compute vectors via local JVM ONNX model (uses persistent DB cache automatically)
+                
                 rawEmbeddings = embeddingService.getEmbeddingsBatch(contents);
             } catch (Exception e) {
                 log.error("Failed to generate local embeddings for batch", e);

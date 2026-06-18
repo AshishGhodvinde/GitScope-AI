@@ -36,10 +36,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * Service handling the full RAG chat pipeline:
- * embed question → retrieve chunks → build context → generate answer → save history.
- */
 @Service
 @Slf4j
 public class ChatService {
@@ -73,10 +69,6 @@ public class ChatService {
         this.embeddingCacheRepository = embeddingCacheRepository;
     }
 
-    /**
-     * Executes the full RAG pipeline for a user's question about a repository (Blocking version).
-     * @deprecated Use chatStream(ChatRequest) for reactive token streaming.
-     */
     @Transactional
     @Deprecated
     public ChatResponse chat(ChatRequest request) {
@@ -91,27 +83,23 @@ public class ChatService {
         log.info("Processing blocking chat question for repo={}: '{}'",
                 repo.getName(), request.question());
 
-        // Step 1: Generate embedding for the question
         float[] questionEmbedding = embeddingService.getEmbedding(request.question());
         List<Double> questionVector = embeddingService.toDoubleList(questionEmbedding);
 
-        // Enforce an absolute metadata boundary condition for this specific repository
         Filter.Expression metaFilter = new FilterExpressionBuilder()
                 .eq("repository_id", String.valueOf(repo.getId()))
                 .build();
 
         SearchRequest searchRequest = SearchRequest.builder()
                 .query(request.question())
-                .topK(8) // Pull top 8 relevant chunks
-                .filterExpression(metaFilter) // CRITICAL: Isolates search strictly to this repo
+                .topK(8) 
+                .filterExpression(metaFilter) 
                 .similarityThreshold(0.5)
                 .build();
 
-        // Step 2: Retrieve top-8 similar chunks from ChromaDB (Dense Vector Search)
         List<SearchResult> semanticChunks = vectorStoreService.query(
                 repo.getChromaCollectionId(), questionVector, 8, repo.getId());
 
-        // Step 3: Retrieve top-4 exact matches from PostgreSQL cache (Lexical Search)
         List<String> keywords = extractKeywords(request.question());
         List<SearchResult> lexicalChunks = new ArrayList<>();
         Set<String> seenLexicalContents = new HashSet<>();
@@ -138,7 +126,6 @@ public class ChatService {
             }
         }
 
-        // Step 4: Perform Reciprocal Rank Fusion (RRF) and select top 8 unique chunks
         List<SearchResult> deduplicatedChunks = rrfFuse(semanticChunks, lexicalChunks);
 
         if (deduplicatedChunks.isEmpty()) {
@@ -149,10 +136,8 @@ public class ChatService {
         log.info("Retrieved {} hybrid chunks ({} semantic, {} lexical, {} deduplicated via RRF)",
                 (semanticChunks.size() + lexicalChunks.size()), semanticChunks.size(), lexicalChunks.size(), deduplicatedChunks.size());
 
-        // Step 5: Generate answer using Gemini with retrieved context
         String answer = geminiChatService.generateAnswer(request.question(), deduplicatedChunks);
 
-        // Step 6: Extract unique source file paths
         List<String> sources = deduplicatedChunks.stream()
                 .map(SearchResult::filePath)
                 .filter(fp -> fp != null && !fp.isBlank())
@@ -160,7 +145,6 @@ public class ChatService {
                 .sorted()
                 .toList();
 
-        // Step 7: Persist chat history
         ChatHistory history = ChatHistory.builder()
                 .repositoryId(request.repositoryId())
                 .question(request.question())
@@ -173,9 +157,6 @@ public class ChatService {
         return new ChatResponse(answer, sources, deduplicatedChunks);
     }
 
-    /**
-     * Executes the full RAG pipeline for a user's question, returning a Server-Sent Events stream.
-     */
     @Transactional
     public Flux<String> chatStream(ChatRequest request) {
         RepositoryEntity repo = repositoryJpaRepository.findById(request.repositoryId())
@@ -189,27 +170,23 @@ public class ChatService {
         log.info("Processing reactive streaming chat query for repo={}: '{}'",
                 repo.getName(), request.question());
 
-        // Step 1: Generate embedding for the question
         float[] questionEmbedding = embeddingService.getEmbedding(request.question());
         List<Double> questionVector = embeddingService.toDoubleList(questionEmbedding);
 
-        // Enforce an absolute metadata boundary condition for this specific repository
         Filter.Expression metaFilter = new FilterExpressionBuilder()
                 .eq("repository_id", String.valueOf(repo.getId()))
                 .build();
 
         SearchRequest searchRequest = SearchRequest.builder()
                 .query(request.question())
-                .topK(8) // Pull top 8 relevant chunks
-                .filterExpression(metaFilter) // CRITICAL: Isolates search strictly to this repo
+                .topK(8) 
+                .filterExpression(metaFilter) 
                 .similarityThreshold(0.5)
                 .build();
 
-        // Step 2: Retrieve top-8 similar chunks from ChromaDB (Dense Vector Search)
         List<SearchResult> semanticChunks = vectorStoreService.query(
                 repo.getChromaCollectionId(), questionVector, 8, repo.getId());
 
-        // Step 3: Retrieve top-4 exact matches from PostgreSQL cache (Lexical Search)
         List<String> keywords = extractKeywords(request.question());
         List<SearchResult> lexicalChunks = new ArrayList<>();
         Set<String> seenLexicalContents = new HashSet<>();
@@ -236,7 +213,6 @@ public class ChatService {
             }
         }
 
-        // Step 4: Perform Reciprocal Rank Fusion (RRF) and select top 8 unique chunks
         List<SearchResult> deduplicatedChunks = rrfFuse(semanticChunks, lexicalChunks);
 
         if (deduplicatedChunks.isEmpty()) {
@@ -246,10 +222,8 @@ public class ChatService {
 
         log.info("RRF complete. Grounding context loaded with {} deduplicated chunks", deduplicatedChunks.size());
 
-        // Step 5: Construct prompt
         String promptText = geminiChatService.buildPrompt(request.question(), deduplicatedChunks);
         
-        // Step 6: Extract unique source file paths for history citations
         List<String> sources = deduplicatedChunks.stream()
                 .map(SearchResult::filePath)
                 .filter(fp -> fp != null && !fp.isBlank())
@@ -257,7 +231,6 @@ public class ChatService {
                 .sorted()
                 .toList();
 
-        // Step 7: Stream and capture output for database persistence
         StringBuilder fullAnswer = new StringBuilder();
 
         return geminiChatModel.stream(new Prompt(promptText))
@@ -290,14 +263,10 @@ public class ChatService {
         }
     }
 
-    /**
-     * Fuses semantic and lexical chunks using standard Reciprocal Rank Fusion (RRF).
-     */
     private List<SearchResult> rrfFuse(List<SearchResult> semanticChunks, List<SearchResult> lexicalChunks) {
         double k = 60.0;
         Map<String, RrfItem> rrfMap = new HashMap<>();
 
-        // Rank in semantic channel (1-based index)
         for (int i = 0; i < semanticChunks.size(); i++) {
             SearchResult sr = semanticChunks.get(i);
             if (sr.content() == null || sr.content().isBlank()) continue;
@@ -306,7 +275,6 @@ public class ChatService {
             item.score += 1.0 / (k + (i + 1));
         }
 
-        // Rank in lexical channel (1-based index)
         for (int i = 0; i < lexicalChunks.size(); i++) {
             SearchResult sr = lexicalChunks.get(i);
             if (sr.content() == null || sr.content().isBlank()) continue;
@@ -315,11 +283,9 @@ public class ChatService {
             item.score += 1.0 / (k + (i + 1));
         }
 
-        // Sort by RRF score in descending order
         List<RrfItem> sortedRrf = new ArrayList<>(rrfMap.values());
         sortedRrf.sort((a, b) -> Double.compare(b.score, a.score));
 
-        // Take top 8 highest-scoring nodes
         return sortedRrf.stream()
                 .limit(8)
                 .map(item -> item.result)
@@ -330,7 +296,7 @@ public class ChatService {
         if (query == null || query.isBlank()) {
             return List.of();
         }
-        // Remove punctuation and split by whitespace
+        
         String cleanQuery = query.replaceAll("[^a-zA-Z0-9_\\s]", " ");
         String[] words = cleanQuery.split("\\s+");
 
@@ -372,11 +338,8 @@ public class ChatService {
         }
     }
 
-    /**
-     * Returns the full chat history for a repository, ordered by most recent first.
-     */
     public List<ChatHistoryResponse> getHistory(Long repositoryId) {
-        // Validate repository exists
+        
         repositoryJpaRepository.findById(repositoryId)
                 .orElseThrow(() -> new RepositoryNotFoundException(repositoryId));
 

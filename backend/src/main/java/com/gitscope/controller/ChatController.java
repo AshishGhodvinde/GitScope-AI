@@ -13,12 +13,6 @@ import reactor.core.publisher.Flux;
 
 import java.util.List;
 
-/**
- * REST controller for chat and chat history endpoints.
- *
- * POST /api/chat                        → ask a question (RAG, streams SSE tokens)
- * GET  /api/chat/history/{repositoryId} → fetch chat history
- */
 @RestController
 @RequestMapping("/api/chat")
 @Slf4j
@@ -30,10 +24,6 @@ public class ChatController {
         this.chatService = chatService;
     }
 
-    /**
-     * Accepts a user question and returns a Server-Sent Events stream of response tokens.
-     * Executes the full RAG pipeline: embed → retrieve → RRF → stream.
-     */
     @PostMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chat(@Valid @RequestBody ChatRequest request) {
         log.info("POST /api/chat (streaming) - repoId={}, question='{}'",
@@ -41,9 +31,6 @@ public class ChatController {
         return chatService.chatStream(request);
     }
 
-    /**
-     * Returns the chat history for a specific repository.
-     */
     @GetMapping("/history/{repositoryId}")
     public ResponseEntity<List<ChatHistoryResponse>> getHistory(@PathVariable Long repositoryId) {
         return ResponseEntity.ok(chatService.getHistory(repositoryId));

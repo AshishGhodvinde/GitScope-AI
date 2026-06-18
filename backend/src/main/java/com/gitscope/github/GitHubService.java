@@ -13,10 +13,6 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
-/**
- * Service responsible for cloning public GitHub repositories using native git
- * and scanning their file trees for supported source files.
- */
 @Service
 @Slf4j
 public class GitHubService {
@@ -40,13 +36,6 @@ public class GitHubService {
     @Value("${github.max-files:500}")
     private int maxFiles;
 
-    /**
-     * Clones a public GitHub repository to a temporary local directory
-     * using the native git binary (avoids JGit HTTP stack issues).
-     *
-     * @param repositoryUrl the HTTPS URL of the GitHub repository
-     * @return the local directory where the repository was cloned
-     */
     public File cloneRepository(String repositoryUrl) {
         String repoName = extractRepoName(repositoryUrl);
         File cloneDir = new File(cloneBaseDir, repoName + "_" + System.currentTimeMillis());
@@ -56,7 +45,6 @@ public class GitHubService {
         try {
             cloneDir.mkdirs();
 
-            // Use native git clone for reliable HTTPS support
             ProcessBuilder pb = new ProcessBuilder(
                     "git", "clone",
                     "--depth=1",
@@ -67,7 +55,7 @@ public class GitHubService {
                     cloneDir.getAbsolutePath()
             );
             pb.redirectErrorStream(true);
-            pb.environment().put("GIT_TERMINAL_PROMPT", "0"); // never prompt for credentials
+            pb.environment().put("GIT_TERMINAL_PROMPT", "0"); 
 
             Process process = pb.start();
             String output = new String(process.getInputStream().readAllBytes());
@@ -91,13 +79,6 @@ public class GitHubService {
         }
     }
 
-
-    /**
-     * Recursively scans the cloned repository and returns all supported source files.
-     *
-     * @param repoDir the root directory of the cloned repository
-     * @return list of supported source files (up to maxFiles limit)
-     */
     public List<File> scanSourceFiles(File repoDir) {
         List<File> sourceFiles = new ArrayList<>();
         long maxBytes = (long) maxFileSizeMb * 1024 * 1024;
@@ -137,9 +118,6 @@ public class GitHubService {
         return sourceFiles;
     }
 
-    /**
-     * Returns all file paths relative to the repository root directory.
-     */
     public List<String> getRelativePaths(File repoDir, List<File> files) {
         Path rootPath = repoDir.toPath();
         return files.stream()
@@ -148,27 +126,16 @@ public class GitHubService {
                 .toList();
     }
 
-    /**
-     * Extracts the repository name from a GitHub URL.
-     * e.g. https://github.com/spring-projects/spring-boot → spring-boot
-     */
     public String extractRepoName(String url) {
         String[] parts = url.trim().replaceAll("\\.git$", "").split("/");
         return parts[parts.length - 1];
     }
 
-    /**
-     * Extracts the owner from a GitHub URL.
-     * e.g. https://github.com/spring-projects/spring-boot → spring-projects
-     */
     public String extractOwner(String url) {
         String[] parts = url.trim().replaceAll("\\.git$", "").split("/");
         return parts.length >= 2 ? parts[parts.length - 2] : "unknown";
     }
 
-    /**
-     * Deletes a cloned repository directory after indexing is complete.
-     */
     public void cleanupDirectory(File dir) {
         if (dir != null && dir.exists()) {
             try (Stream<Path> paths = Files.walk(dir.toPath())) {

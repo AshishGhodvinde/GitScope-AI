@@ -10,9 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * JPA repository for CRUD operations on relational FileEntity cache entries.
- */
 @Repository
 public interface FileRepository extends JpaRepository<FileEntity, Long> {
 

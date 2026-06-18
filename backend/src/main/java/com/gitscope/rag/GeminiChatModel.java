@@ -16,10 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * Custom Spring AI ChatModel implementation for Google Gemini 2.5 Flash.
- * Bypasses the need for Vertex AI credentials by calling the developer API key endpoint directly.
- */
 @Component
 @Slf4j
 public class GeminiChatModel implements ChatModel {

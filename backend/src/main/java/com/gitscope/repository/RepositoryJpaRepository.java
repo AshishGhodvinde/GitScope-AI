@@ -6,9 +6,6 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
-/**
- * JPA repository for RepositoryEntity — provides CRUD + custom finders.
- */
 @Repository
 public interface RepositoryJpaRepository extends JpaRepository<RepositoryEntity, Long> {
 

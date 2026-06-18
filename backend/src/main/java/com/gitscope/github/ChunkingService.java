@@ -13,14 +13,6 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Service that breaks source files into semantic code chunks.
- *
- * Strategy:
- *   Java  → chunk by class, then methods inside each class
- *   JS/TS → chunk by React components, hooks, route handlers, exports
- *   Other → chunk by fixed-size with overlap
- */
 @Service
 @Slf4j
 public class ChunkingService {
@@ -31,33 +23,22 @@ public class ChunkingService {
     @Value("${rag.chunk-overlap:200}")
     private int chunkOverlap;
 
-    // Java class-level declarations
     private static final Pattern JAVA_CLASS_PATTERN = Pattern.compile(
             "(?:public|private|protected)?\\s*(?:abstract|final)?\\s*(?:class|interface|enum|record)\\s+(\\w+)",
             Pattern.MULTILINE);
 
-    // Java method declarations (simplified)
     private static final Pattern JAVA_METHOD_PATTERN = Pattern.compile(
             "(?:public|private|protected|static|final|synchronized|\\s)+[\\w<>\\[\\],\\s]+\\s+(\\w+)\\s*\\([^)]*\\)\\s*(?:throws[^{]+)?\\{",
             Pattern.MULTILINE);
 
-    // React functional components
     private static final Pattern REACT_COMPONENT_PATTERN = Pattern.compile(
             "(?:export\\s+(?:default\\s+)?)?(?:const|function)\\s+(\\w+)\\s*[=:(].*?(?:=>|\\{)",
             Pattern.MULTILINE);
 
-    // Named exports and functions
     private static final Pattern JS_FUNCTION_PATTERN = Pattern.compile(
             "(?:export\\s+)?(?:async\\s+)?function\\s+(\\w+)|const\\s+(\\w+)\\s*=\\s*(?:async\\s+)?(?:\\([^)]*\\)|\\w+)\\s*=>",
             Pattern.MULTILINE);
 
-    /**
-     * Produces a list of semantic chunks from a single source file.
-     *
-     * @param file     the source file
-     * @param filePath relative path from repository root
-     * @return list of code chunks
-     */
     public List<CodeChunk> chunkFile(File file, String filePath) {
         String content;
         try {
@@ -80,12 +61,10 @@ public class ChunkingService {
             default -> chunks.addAll(chunkGeneric(content, filePath, language));
         }
 
-        // If no chunks were extracted by pattern matching, fall back to generic chunking
         if (chunks.isEmpty()) {
             chunks.addAll(chunkGeneric(content, filePath, language));
         }
 
-        // Silently discard high-noise, low-signal structures
         List<CodeChunk> filteredChunks = new ArrayList<>();
         for (CodeChunk chunk : chunks) {
             if (!isLowValueChunk(chunk.getContent())) {
@@ -100,12 +79,10 @@ public class ChunkingService {
         if (content == null) return true;
         String trimmed = content.trim();
 
-        // 1. Chunks containing fewer than 100 characters
         if (trimmed.length() < 100) {
             return true;
         }
 
-        // 2. Auto-generated boilerplates (hashCode(), equals(), toString())
         if (trimmed.contains("hashCode()") || trimmed.contains("toString()") || trimmed.contains("equals(Object")) {
             return true;
         }
@@ -113,30 +90,22 @@ public class ChunkingService {
             return true;
         }
 
-        // 3. Trivial accessors (Empty constructors, single-line getters/setters)
         String singleLine = trimmed.replaceAll("\\s+", " ");
 
-        // Empty constructor
         if (singleLine.matches("(?i).*(?:public|private|protected)?\\s*\\w+\\s*\\(\\s*\\)\\s*\\{\\s*\\}")) {
             return true;
         }
 
-        // Single-line getter
         if (singleLine.matches("(?i).*(?:public|private|protected)?\\s*[\\w<>]+\\s+get\\w+\\s*\\(\\s*\\)\\s*\\{\\s*return\\s+[^;]+;\\s*\\}")) {
             return true;
         }
 
-        // Single-line setter
         if (singleLine.matches("(?i).*(?:public|private|protected)?\\s*void\\s+set\\w+\\s*\\([^)]*\\)\\s*\\{\\s*(?:this\\.)?\\w+\\s*=\\s*[^;]+;\\s*\\}")) {
             return true;
         }
 
         return false;
     }
-
-    // ─────────────────────────────────────────────────────────────────
-    // Java chunking — class-level chunks with method extraction
-    // ─────────────────────────────────────────────────────────────────
 
     private List<CodeChunk> chunkJavaFile(String content, String filePath) {
         List<CodeChunk> chunks = new ArrayList<>();
@@ -151,7 +120,7 @@ public class ChunkingService {
         boolean insideMethod = false;
 
         for (String line : lines) {
-            // Detect class declaration
+            
             Matcher classMatcher = JAVA_CLASS_PATTERN.matcher(line);
             if (classMatcher.find() && !insideClass) {
                 currentClassName = classMatcher.group(1);
@@ -159,13 +128,11 @@ public class ChunkingService {
                 classBuilder = new StringBuilder();
             }
 
-            // Count braces to track scope
             braceDepth += countChar(line, '{') - countChar(line, '}');
 
             if (insideClass) {
                 classBuilder.append(line).append("\n");
 
-                // Detect method declarations inside class
                 Matcher methodMatcher = JAVA_METHOD_PATTERN.matcher(line);
                 if (methodMatcher.find() && braceDepth == 2 && !insideMethod) {
                     currentMethodName = methodMatcher.group(1);
@@ -177,7 +144,6 @@ public class ChunkingService {
                     methodBuilder.append(line).append("\n");
                 }
 
-                // Method ends when we return to class scope
                 if (insideMethod && braceDepth == 1) {
                     String methodContent = methodBuilder.toString();
                     if (!methodContent.isBlank() && methodContent.length() > 50) {
@@ -189,10 +155,9 @@ public class ChunkingService {
                     methodBuilder = new StringBuilder();
                 }
 
-                // Class ends when braceDepth returns to 0
                 if (braceDepth == 0 && insideClass) {
                     String classContent = classBuilder.toString();
-                    // Only add class chunk if it's not too long (avoid duplicating method chunks)
+                    
                     if (classContent.length() <= maxChunkSize * 2) {
                         chunks.add(buildChunk(classContent, filePath, "java",
                                 currentClassName, null, "CLASS"));
@@ -204,17 +169,12 @@ public class ChunkingService {
             }
         }
 
-        // If class parsing didn't yield results, fall back to generic
         if (chunks.isEmpty()) {
             return chunkGeneric(content, filePath, "java");
         }
 
         return chunks;
     }
-
-    // ─────────────────────────────────────────────────────────────────
-    // JavaScript / TypeScript chunking — components, hooks, functions
-    // ─────────────────────────────────────────────────────────────────
 
     private List<CodeChunk> chunkJsFile(String content, String filePath, String language) {
         List<CodeChunk> chunks = new ArrayList<>();
@@ -226,7 +186,7 @@ public class ChunkingService {
         boolean capturing = false;
 
         for (String line : lines) {
-            // Check for component or function start
+            
             Matcher componentMatcher = REACT_COMPONENT_PATTERN.matcher(line);
             Matcher funcMatcher = JS_FUNCTION_PATTERN.matcher(line);
 
@@ -234,7 +194,7 @@ public class ChunkingService {
             boolean isFuncStart = funcMatcher.find() && !capturing;
 
             if (isComponentStart || isFuncStart) {
-                // Save previous chunk
+                
                 if (capturing && builder.length() > 50) {
                     String chunkType = currentName != null && Character.isUpperCase(currentName.charAt(0))
                             ? "COMPONENT" : "FUNCTION";
@@ -254,7 +214,6 @@ public class ChunkingService {
             if (capturing) {
                 builder.append(line).append("\n");
 
-                // Chunk ends when brace depth returns to 0
                 if (braceDepth <= 0 && builder.length() > 50) {
                     String chunkType = currentName != null && Character.isUpperCase(currentName.charAt(0))
                             ? "COMPONENT" : "FUNCTION";
@@ -268,7 +227,6 @@ public class ChunkingService {
             }
         }
 
-        // Capture any remaining content
         if (capturing && builder.length() > 50) {
             chunks.add(buildChunk(builder.toString(), filePath, language,
                     null, currentName, "FUNCTION"));
@@ -276,10 +234,6 @@ public class ChunkingService {
 
         return chunks.isEmpty() ? chunkGeneric(content, filePath, language) : chunks;
     }
-
-    // ─────────────────────────────────────────────────────────────────
-    // Generic sliding-window chunking for YAML, JSON, Markdown, etc.
-    // ─────────────────────────────────────────────────────────────────
 
     private List<CodeChunk> chunkGeneric(String content, String filePath, String language) {
         List<CodeChunk> chunks = new ArrayList<>();
@@ -292,7 +246,7 @@ public class ChunkingService {
         int start = 0;
         while (start < content.length()) {
             int end = Math.min(start + maxChunkSize, content.length());
-            // Try to break at a newline boundary
+            
             if (end < content.length()) {
                 int newlineIndex = content.lastIndexOf('\n', end);
                 if (newlineIndex > start) {
@@ -306,10 +260,6 @@ public class ChunkingService {
 
         return chunks;
     }
-
-    // ─────────────────────────────────────────────────────────────────
-    // Utilities
-    // ─────────────────────────────────────────────────────────────────
 
     private CodeChunk buildChunk(String content, String filePath, String language,
                                   String className, String methodName, String chunkType) {

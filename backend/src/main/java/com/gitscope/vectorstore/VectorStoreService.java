@@ -12,14 +12,6 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
 
-/**
- * Service for interacting with ChromaDB via its HTTP REST API (v2).
- *
- * ChromaDB 1.0+ dropped the v1 API. All endpoints now require the tenant/database
- * path prefix: /api/v2/tenants/{tenant}/databases/{database}/collections
- *
- * Handles: collection creation, batch upsert, similarity search, deletion.
- */
 @Service
 @Slf4j
 public class VectorStoreService {
@@ -37,9 +29,6 @@ public class VectorStoreService {
         this.objectMapper = new ObjectMapper();
     }
 
-    // ── URL helpers ──────────────────────────────────────────────────────────
-
-    /** Base path for all v2 collection operations. */
     private String collectionsUrl() {
         return chromaConfig.getBaseUrl()
                 + "/api/v2/tenants/" + DEFAULT_TENANT
@@ -53,21 +42,8 @@ public class VectorStoreService {
         return h;
     }
 
-    // ── Public API ────────────────────────────────────────────────────────────
-
-    /**
-     * Creates (or gets existing) a ChromaDB collection for the given repository.
-     *
-     * If the collection already exists with a different embedding dimension (e.g. stale
-     * data from a previous Gemini-based run), it is automatically deleted and recreated
-     * with the correct dimension for the current model.
-     *
-     * @param collectionName unique name for the repository's vector collection
-     * @return the ChromaDB collection UUID
-     */
     public String getOrCreateCollection(String collectionName) {
-        // First, attempt to delete any stale collection with the same name.
-        // This is a no-op if the collection does not yet exist.
+        
         forceDeleteCollectionByName(collectionName);
 
         String url = collectionsUrl();
@@ -97,13 +73,6 @@ public class VectorStoreService {
         }
     }
 
-    /**
-     * Upserts a batch of code chunks and their embeddings into ChromaDB.
-     *
-     * @param collectionId  the ChromaDB collection UUID
-     * @param chunks        list of code chunks
-     * @param embeddings    corresponding embedding vectors
-     */
     public void upsertChunks(String collectionId, Long repositoryId, List<CodeChunk> chunks, List<List<Double>> embeddings) {
         String url = collectionsUrl() + "/" + collectionId + "/upsert";
 
@@ -150,14 +119,6 @@ public class VectorStoreService {
         }
     }
 
-    /**
-     * Performs a similarity search in ChromaDB for the given query embedding.
-     *
-     * @param collectionId   the ChromaDB collection UUID
-     * @param queryEmbedding the query vector
-     * @param topK           number of results to return
-     * @return list of matching chunks as search results
-     */
     public List<SearchResult> query(String collectionId, List<Double> queryEmbedding, int topK, Long repositoryId) {
         String url = collectionsUrl() + "/" + collectionId + "/query";
 
@@ -185,10 +146,6 @@ public class VectorStoreService {
         }
     }
 
-    /**
-     * Deletes a ChromaDB collection by UUID or name (used during re-indexing).
-     * Failures are silently ignored — the collection may not exist yet.
-     */
     public void deleteCollection(String collectionIdOrName) {
         if (collectionIdOrName == null || collectionIdOrName.isBlank()) return;
         String url = collectionsUrl() + "/" + collectionIdOrName;
@@ -201,24 +158,17 @@ public class VectorStoreService {
         }
     }
 
-    /**
-     * Attempts to delete a collection by its human-readable name.
-     * Used before recreation to prevent dimension-mismatch errors when the
-     * embedding model changes (e.g. switching from Gemini 3072-dim to ONNX 384-dim).
-     */
     private void forceDeleteCollectionByName(String collectionName) {
-        // ChromaDB v2: DELETE /collections/{name} resolves by name first
+        
         String url = collectionsUrl() + "/" + collectionName;
         try {
             restTemplate.delete(url);
             log.info("Pre-deleted stale ChromaDB collection '{}' before recreation.", collectionName);
         } catch (Exception e) {
-            // 404 = collection didn't exist yet — this is the normal path for first-time indexing
+            
             log.debug("No stale collection '{}' to delete ({})", collectionName, e.getMessage());
         }
     }
-
-    // ── Parsing helpers ───────────────────────────────────────────────────────
 
     private List<SearchResult> parseQueryResults(String json) {
         List<SearchResult> results = new ArrayList<>();
@@ -249,9 +199,6 @@ public class VectorStoreService {
         return results;
     }
 
-    /**
-     * Represents a single ChromaDB search result.
-     */
     public record SearchResult(
             String content,
             String filePath,

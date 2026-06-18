@@ -1,435 +1,459 @@
-import { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  GitBranch, Zap, ArrowRight, CheckCircle,
-  Code2, Search, MessageSquare, Lock,
-} from 'lucide-react';
-import { indexRepository } from '../api/repositories';
-import { useToast } from '../context/ToastContext';
-import { LoadingSpinner } from '../components/LoadingSpinner';
-import { motion, useInView } from 'framer-motion';
-import type { Variants } from 'framer-motion';
+import { useState, useEffect } from "react"
+import { motion, AnimatePresence } from "framer-motion"
+import { AntiGravityCanvas } from "@/components/ui/particle-effect-for-hero"
+import { Navbar } from "@/components/ui/mini-navbar"
+import { Search, ArrowRight, FolderGit2, Terminal, CheckCircle2, AlertCircle, Loader2, X, BookOpen, HelpCircle, Code2, Compass } from "lucide-react"
 
-// ── Data ─────────────────────────────────────────────────────────────────────
-const EXAMPLE_REPOS = [
-  'https://github.com/spring-projects/spring-petclinic',
-  'https://github.com/facebook/react',
-  'https://github.com/expressjs/express',
-];
-
-const FEATURES = [
-  {
-    icon: Code2,
-    title: 'Smart Code Chunking',
-    description: 'Semantically splits Java classes, React components, and Node routes for precise context retrieval.',
-    color: '#0fbf3e',
-  },
-  {
-    icon: Search,
-    title: 'Vector Similarity Search',
-    description: 'Embeds code with all-MiniLM-L6-v2 locally, stores in ChromaDB for lightning-fast semantic queries.',
-    color: '#58a6ff',
-  },
-  {
-    icon: MessageSquare,
-    title: 'RAG-Powered Chat',
-    description: 'Ask anything — get grounded answers with exact source files cited, never hallucinated.',
-    color: '#bc8cff',
-  },
-  {
-    icon: Lock,
-    title: 'Model Fallback Routing',
-    description: 'Automatically retries with gemini-1.5-flash on 429/503 errors. Zero interruptions during demos.',
-    color: '#e3b341',
-  },
-];
-
-const HOW_IT_WORKS = [
-  'Clone repository via JGit',
-  'Scan & filter source files',
-  'Chunk code semantically',
-  'Generate local ONNX embeddings',
-  'Store vectors in ChromaDB',
-  'Answer questions with RAG + Gemini',
-];
-
-// ── Animation variants (typed to satisfy Framer Motion v12 strict types) ──────
-const containerVariants: Variants = {
-  hidden:  { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.07 } },
-};
-
-const itemVariants: Variants = {
-  hidden:  { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { type: 'spring' as const, stiffness: 260, damping: 28 },
-  },
-};
-
-// ── Section reveal wrapper (useInView) ────────────────────────────────────────
-function RevealSection({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { once: true, margin: '-80px' });
-  return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 28 }}
-      animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: 28 }}
-      transition={{ type: 'spring' as const, stiffness: 220, damping: 26 }}
-      className={className}
-    >
-      {children}
-    </motion.div>
-  );
+interface LandingPageProps {
+  onSelectRepo: (id: number, url: string) => void;
 }
 
-// ── Landing Page ──────────────────────────────────────────────────────────────
-export function LandingPage() {
-  const [url, setUrl]         = useState('');
-  const [loading, setLoading] = useState(false);
-  const [step, setStep]       = useState('');
-  const navigate = useNavigate();
-  const { success, error } = useToast();
-  const inputRef = useRef<HTMLInputElement>(null);
+interface RepositoryListItem {
+  id: number;
+  name: string;
+  owner: string;
+  url: string;
+  status: "INDEXING" | "INDEXED" | "FAILED";
+  fileCount: number | null;
+  chunkCount: number | null;
+}
 
-  const handleIndex = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!url.trim()) { inputRef.current?.focus(); return; }
+export default function LandingPage({ onSelectRepo }: LandingPageProps) {
+  const [repoUrl, setRepoUrl] = useState("")
+  const [isIndexing, setIsIndexing] = useState(false)
+  const [recentRepos, setRecentRepos] = useState<RepositoryListItem[]>([])
+  const [isDocsOpen, setIsDocsOpen] = useState(false)
+  const [indexingCompleted, setIndexingCompleted] = useState(false)
+  const [indexedRepoId, setIndexedRepoId] = useState<number | null>(null)
+  const [progress, setProgress] = useState(0)
+  const [activeStep, setActiveStep] = useState(0)
+  const [errorMsg, setErrorMsg] = useState("")
 
-    const githubPattern = /^https:\/\/github\.com\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+/;
-    if (!githubPattern.test(url.trim())) {
-      error('Invalid URL', 'Please enter a valid public GitHub repository URL.');
-      return;
-    }
+  const loadingSteps = [
+    "Cloning repository from GitHub (shallow copy)...",
+    "Scanning directory tree and filtering junk assets...",
+    "Tokenizing source code into semantic chunks...",
+    "Generating vector embeddings using local JVM ONNX model...",
+    "Storing index items in ChromaDB and caching file structure..."
+  ]
 
-    setLoading(true);
-    setStep('Cloning repository…');
+  useEffect(() => {
+    fetch("/api/repositories")
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load workspaces")
+        return res.json()
+      })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setRecentRepos(data)
+        }
+      })
+      .catch((err) => console.error("Error loading repositories:", err))
+  }, [])
 
-    const steps = [
-      { msg: 'Cloning repository…',    delay: 0     },
-      { msg: 'Scanning source files…', delay: 3000  },
-      { msg: 'Generating embeddings…', delay: 8000  },
-      { msg: 'Storing vectors…',       delay: 15000 },
-      { msg: 'Finalising index…',      delay: 25000 },
-    ];
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!repoUrl.trim() || isIndexing) return
 
-    const timers = steps.map(({ msg, delay }) => setTimeout(() => setStep(msg), delay));
+    setIsIndexing(true)
+    setProgress(0)
+    setActiveStep(0)
+    setErrorMsg("")
 
-    try {
-      const result = await indexRepository({ repositoryUrl: url.trim() });
-      timers.forEach(clearTimeout);
-      success('Repository indexed!', `${result.fileCount} files · ${result.chunkCount} chunks ready`);
-      navigate(`/repository/${result.repositoryId}`);
-    } catch (err: unknown) {
-      timers.forEach(clearTimeout);
-      const msg = err instanceof Error ? err.message : 'Indexing failed. Please try again.';
-      error('Indexing failed', msg);
-    } finally {
-      setLoading(false);
-      setStep('');
-    }
-  };
+    const progressInterval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 95) {
+          clearInterval(progressInterval)
+          return 95
+        }
+        const next = prev + Math.floor(Math.random() * 4) + 1
+        
+        if (next < 20) setActiveStep(0)
+        else if (next < 45) setActiveStep(1)
+        else if (next < 65) setActiveStep(2)
+        else if (next < 85) setActiveStep(3)
+        else setActiveStep(4)
+        
+        return next
+      })
+    }, 400)
 
-  const setExample = (repo: string) => { setUrl(repo); inputRef.current?.focus(); };
+    fetch("/api/repositories/index", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repositoryUrl: repoUrl.trim() })
+    })
+      .then(async (res) => {
+        clearInterval(progressInterval)
+        if (!res.ok) {
+          const text = await res.text().catch(() => "Indexing request failed")
+          throw new Error(text || `HTTP error! Status: ${res.status}`)
+        }
+        return res.json()
+      })
+      .then((data) => {
+        setProgress(100)
+        setActiveStep(4)
+        setIndexedRepoId(data.repositoryId)
+        setIndexingCompleted(true)
+      })
+      .catch((err) => {
+        clearInterval(progressInterval)
+        console.error("Indexing failed:", err)
+        setErrorMsg(err.message || "An unexpected indexing error occurred. Please verify the GitHub URL.")
+        setIsIndexing(false)
+      })
+  }
+
+  const handleSelectWorkspace = (id: number, url: string) => {
+    if (isIndexing) return
+    onSelectRepo(id, url)
+  }
 
   return (
-    <div className="relative min-h-[calc(100vh-64px)] overflow-hidden" style={{ background: 'var(--canvas-bg)' }}>
+    <div className="relative min-h-screen w-full text-white overflow-y-auto selection:bg-[#0fbf3e]/30 selection:text-white bg-black">
+      <Navbar onDocsClick={() => setIsDocsOpen(true)} />
+      <AntiGravityCanvas />
 
-      {/* ── Ambient orbs (GPU composited — no layout impact) ── */}
-      <div
-        className="orb animate-orb"
-        style={{
-          width: 600,
-          height: 600,
-          top: -120,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'radial-gradient(circle, rgba(15,191,62,0.14) 0%, transparent 70%)',
-        }}
-      />
-      <div
-        className="orb"
-        style={{
-          width: 400,
-          height: 400,
-          bottom: 200,
-          right: -100,
-          background: 'radial-gradient(circle, rgba(88,166,255,0.10) 0%, transparent 70%)',
-          animation: 'orbFloat 16s ease-in-out infinite reverse',
-        }}
-      />
-
-      {/* Dot grid overlay */}
-      <div className="absolute inset-0 bg-dots opacity-40 pointer-events-none" />
-
-      {/* ── Hero ── */}
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        className="relative max-w-5xl mx-auto px-4 sm:px-6 pt-24 pb-20 text-center"
-      >
-        {/* Badge */}
-        <motion.div variants={itemVariants} className="flex justify-center mb-8">
-          <span
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold border"
-            style={{
-              background: 'rgba(15,191,62,0.08)',
-              borderColor: 'rgba(15,191,62,0.25)',
-              color: 'var(--accent)',
-            }}
-          >
-            <Zap className="w-3 h-3" />
-            Powered by Gemini + ChromaDB + ONNX Embeddings
-          </span>
-        </motion.div>
-
-        {/* Hero headline */}
-        <motion.h1
-          variants={itemVariants}
-          className="text-5xl sm:text-6xl lg:text-8xl font-black leading-[1.05] tracking-tight mb-6"
-          style={{ color: 'var(--text-primary)' }}
+      <div className="relative min-h-screen w-full flex flex-col items-center justify-center px-4 z-10 pointer-events-none">
+        <motion.h1 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 100, damping: 20 }}
+          className="text-center text-7xl sm:text-[9rem] md:text-[11rem] lg:text-[13rem] xl:text-[15rem] font-black tracking-tighter bg-gradient-to-r from-white via-[#a2f9b4] to-[#0fbf3e] bg-clip-text text-transparent leading-none select-none"
         >
-          Understand any
-          <br />
-          <span
-            style={{
-              background: 'linear-gradient(135deg, #0fbf3e 0%, #3fb950 40%, #58d680 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-              filter: 'drop-shadow(0 0 30px rgba(15,191,62,0.25))',
-            }}
-          >
-            GitHub repo
-          </span>
-          <br />
-          <span style={{ color: 'var(--text-secondary)' }}>with AI</span>
+          GitScope AI
         </motion.h1>
 
-        {/* Sub-headline */}
-        <motion.p
-          variants={itemVariants}
-          className="text-base sm:text-lg max-w-2xl mx-auto mb-12 leading-relaxed"
-          style={{ color: 'var(--text-muted)' }}
+        <motion.p 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          className="mt-4 text-center text-sm md:text-base text-zinc-400 max-w-md tracking-wide font-light"
         >
-          Paste a GitHub URL. GitScope AI indexes the codebase, generates local vector embeddings,
-          and lets you chat with the code — grounded answers with exact source files cited.
+          Analyze, map, and converse with any codebase architecture instantly.
         </motion.p>
 
-        {/* ── Index form ── */}
-        <motion.form
-          onSubmit={handleIndex}
-          variants={itemVariants}
-          className="relative max-w-2xl mx-auto mb-4"
+        <motion.form 
+          onSubmit={handleSearchSubmit}
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, type: "spring", stiffness: 120, damping: 22 }}
+          className="relative mt-10 w-full max-w-2xl bg-neutral-900/40 border border-neutral-800/80 backdrop-blur-xl rounded-full p-2 flex items-center shadow-3xl focus-within:border-zinc-700 transition-all group pointer-events-auto"
         >
-          <div
-            className="flex flex-col sm:flex-row gap-2 p-2 rounded-2xl border transition-all duration-200"
-            style={{
-              background: 'var(--glass-bg)',
-              borderColor: 'var(--glass-border)',
-            }}
+          <Search className="ml-4 h-5 w-5 text-zinc-500 group-focus-within:text-[#0fbf3e] transition-colors flex-shrink-0" />
+          <input 
+            type="text"
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
+            placeholder="Paste a public GitHub repository URL..."
+            className="w-full bg-transparent px-4 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none"
+            disabled={isIndexing}
+          />
+          <button 
+            type="submit"
+            className={`p-3 rounded-full transition-all flex items-center justify-center flex-shrink-0 ${
+              repoUrl && !isIndexing ? 'bg-[#0fbf3e] text-black hover:bg-[#2ea44f] scale-100 opacity-100' : 'bg-zinc-800 text-zinc-600 scale-95 opacity-50'
+            }`}
+            disabled={!repoUrl || isIndexing}
           >
-            <div className="flex-1 relative flex items-center">
-              <GitBranch
-                className="absolute left-3.5 w-4 h-4 shrink-0"
-                style={{ color: 'var(--text-muted)' }}
-              />
-              <input
-                ref={inputRef}
-                id="repo-url-input"
-                type="url"
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                placeholder="https://github.com/username/repository"
-                className="w-full pl-10 pr-4 py-3 bg-transparent border-0 font-mono text-sm focus:outline-none"
-                style={{ color: 'var(--text-primary)' }}
-                disabled={loading}
-                aria-label="GitHub repository URL"
-                onFocus={e => {
-                  const wrap = e.currentTarget.closest('form')?.querySelector('.flex.gap-2') as HTMLElement | null;
-                  if (wrap) {
-                    wrap.style.borderColor = 'var(--accent)';
-                    wrap.style.boxShadow = '0 0 0 3px var(--accent-glow)';
-                  }
-                }}
-                onBlur={e => {
-                  const wrap = e.currentTarget.closest('form')?.querySelector('.flex.gap-2') as HTMLElement | null;
-                  if (wrap) {
-                    wrap.style.borderColor = 'var(--glass-border)';
-                    wrap.style.boxShadow = '';
-                  }
-                }}
-              />
-            </div>
-            <button
-              id="index-button"
-              type="submit"
-              disabled={loading || !url.trim()}
-              className="btn-primary shrink-0 py-3 px-6 rounded-xl cursor-pointer"
-            >
-              {loading ? (
-                <>
-                  <LoadingSpinner size="sm" />
-                  <span>Indexing…</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4" />
-                  Index Repository
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </div>
+            <ArrowRight className="h-4 w-4 stroke-[2.5]" />
+          </button>
         </motion.form>
 
-        {/* Loading status */}
-        {loading && step && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center text-sm mb-4 animate-pulse"
-            style={{ color: 'var(--accent)' }}
-          >
-            {step}
-          </motion.p>
-        )}
-
-        {/* Example repos */}
-        <motion.div variants={itemVariants} className="flex flex-wrap justify-center gap-3 mb-24">
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Try:</span>
-          {EXAMPLE_REPOS.map(repo => {
-            const name = repo.split('/').slice(-2).join('/');
-            return (
-              <button
-                key={repo}
-                onClick={() => setExample(repo)}
-                disabled={loading}
-                className="text-xs font-mono transition-colors duration-150 hover:underline cursor-pointer"
-                style={{ color: 'var(--text-secondary)' }}
-                onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
-              >
-                {name}
-              </button>
-            );
-          })}
-        </motion.div>
-      </motion.div>
-
-      {/* ── Features section (scroll-triggered) ── */}
-      <RevealSection className="relative max-w-5xl mx-auto px-4 sm:px-6 mb-20">
-        <p
-          className="text-[10px] font-bold uppercase tracking-[0.2em] mb-8 text-center"
-          style={{ color: 'var(--text-muted)' }}
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.4 }}
+          className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-zinc-500 pointer-events-auto"
         >
-          Core Capabilities
-        </p>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {FEATURES.map((f, i) => {
-            const Icon = f.icon;
-            return (
-              <motion.div
-                key={f.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ type: 'spring' as const, stiffness: 220, damping: 26, delay: i * 0.07 }}
-                whileHover={{ y: -4 }}
-                className="relative rounded-2xl p-5 border cursor-default overflow-hidden"
-                style={{
-                  background: 'var(--glass-bg)',
-                  borderColor: 'var(--glass-border)',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = f.color;
-                  (e.currentTarget as HTMLDivElement).style.boxShadow = `0 0 20px ${f.color}22`;
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--glass-border)';
-                  (e.currentTarget as HTMLDivElement).style.boxShadow = '';
-                }}
-              >
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center mb-3 border"
-                  style={{ background: `${f.color}14`, borderColor: `${f.color}30` }}
-                >
-                  <Icon className="w-4 h-4" style={{ color: f.color }} />
-                </div>
-                <h3 className="font-semibold text-sm mb-1.5" style={{ color: 'var(--text-primary)' }}>
-                  {f.title}
-                </h3>
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  {f.description}
-                </p>
-              </motion.div>
-            );
-          })}
-        </div>
-      </RevealSection>
-
-      {/* ── How it works — vertical timeline ── */}
-      <RevealSection className="relative max-w-2xl mx-auto px-4 sm:px-6 pb-32">
-        <div
-          className="rounded-2xl p-7 border"
-          style={{ background: 'var(--glass-bg)', borderColor: 'var(--glass-border)' }}
-        >
-          <h2
-            className="font-bold text-sm mb-6 flex items-center gap-2"
-            style={{ color: 'var(--text-primary)' }}
-          >
-            <span
-              className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded border"
-              style={{
-                color: 'var(--accent)',
-                borderColor: 'rgba(15,191,62,0.25)',
-                background: 'rgba(15,191,62,0.08)',
-              }}
+          <span>Try a sample codebase:</span>
+          {[
+            { label: 'spring-petclinic', url: 'https://github.com/spring-projects/spring-petclinic' },
+            { label: 'react-router', url: 'https://github.com/remix-run/react-router' },
+            { label: 'shopping-cart', url: 'https://github.com/shashiraraja/shopping-cart' }
+          ].map((sample) => (
+            <button
+              key={sample.label}
+              type="button"
+              onClick={() => setRepoUrl(sample.url)}
+              className="px-2 py-1 bg-zinc-900/60 border border-zinc-800 rounded-md text-zinc-400 hover:text-white hover:border-zinc-600 transition-all"
             >
-              Pipeline
-            </span>
-            How it works
-          </h2>
-          <div className="relative">
-            {/* Vertical connecting line */}
-            <div
-              className="absolute left-[13px] top-2 bottom-2 w-px"
-              style={{ background: 'linear-gradient(to bottom, var(--accent), transparent)' }}
-            />
-            <div className="space-y-4">
-              {HOW_IT_WORKS.map((s, i) => (
-                <motion.div
-                  key={s}
-                  initial={{ opacity: 0, x: -12 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ type: 'spring' as const, stiffness: 220, damping: 26, delay: i * 0.06 }}
-                  className="flex items-center gap-4"
-                >
-                  <span
-                    className="w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center shrink-0 border relative z-10"
-                    style={{
-                      background: 'var(--canvas-bg)',
-                      borderColor: 'var(--accent)',
-                      color: 'var(--accent)',
-                    }}
-                  >
-                    {i + 1}
-                  </span>
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{s}</span>
-                  <CheckCircle
-                    className="w-3.5 h-3.5 ml-auto shrink-0"
-                    style={{ color: 'var(--accent)', opacity: 0.6 }}
-                  />
-                </motion.div>
-              ))}
+              {sample.label}
+            </button>
+          ))}
+        </motion.div>
+
+        <AnimatePresence>
+          {(isIndexing || errorMsg) && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="w-full max-w-xl mt-8 p-5 rounded-2xl bg-neutral-900/80 border border-neutral-800/90 shadow-2xl backdrop-blur-md pointer-events-auto text-left"
+            >
+              {errorMsg ? (
+                <div className="flex gap-3 items-start">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="text-xs font-semibold text-red-400">Indexing Failed</h4>
+                    <p className="text-[11px] text-zinc-400 mt-1 leading-normal">{errorMsg}</p>
+                    <button
+                      onClick={() => setErrorMsg("")}
+                      className="mt-2 text-[10px] text-zinc-500 hover:text-white underline"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {indexingCompleted ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-[#0fbf3e]" />
+                      ) : (
+                        <Loader2 className="w-3.5 h-3.5 text-[#0fbf3e] animate-spin" />
+                      )}
+                      <span className="text-xs font-medium text-zinc-200">
+                        {indexingCompleted ? "Indexing Complete" : "Structuring Codebase RAG..."}
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono text-[#0fbf3e] font-semibold">{progress}%</span>
+                  </div>
+
+                  <div className="w-full h-1 bg-neutral-800 rounded-full overflow-hidden">
+                    <motion.div 
+                      className="h-full bg-gradient-to-r from-[#0fbf3e] to-[#2ea44f] rounded-full"
+                      initial={{ width: "0%" }}
+                      animate={{ width: `${progress}%` }}
+                      transition={{ duration: 0.2 }}
+                    />
+                  </div>
+
+                  {indexingCompleted ? (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="pt-2 flex flex-col items-center gap-4 text-center"
+                    >
+                      <p className="text-xs text-zinc-300">
+                        Workspace files tokenized, embedded, and cached in vector database. Your RAG environment is ready.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (indexedRepoId) {
+                            onSelectRepo(indexedRepoId, repoUrl.trim());
+                            setIsIndexing(false);
+                            setIndexingCompleted(false);
+                            setIndexedRepoId(null);
+                          }
+                        }}
+                        className="px-5 py-2.5 rounded-full bg-[#0fbf3e] hover:bg-[#2ea44f] text-black font-semibold text-xs transition-all shadow-lg shadow-[#0fbf3e]/20 flex items-center gap-1.5 cursor-pointer"
+                      >
+                        Proceed to Workspace <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                      </button>
+                    </motion.div>
+                  ) : (
+                    <div className="space-y-2">
+                      {loadingSteps.map((step, idx) => {
+                        const isDone = progress >= (idx + 1) * 20
+                        const isActive = activeStep === idx
+
+                        return (
+                          <div key={idx} className="flex items-start gap-2.5 text-[11px]">
+                            <div className="mt-0.5 shrink-0">
+                              {isDone ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-[#0fbf3e]" />
+                              ) : isActive ? (
+                                <Loader2 className="w-3.5 h-3.5 text-zinc-400 animate-spin" />
+                              ) : (
+                                <div className="w-3.5 h-3.5 rounded-full border border-neutral-700" />
+                              )}
+                            </div>
+                            <span className={isDone ? "text-zinc-500 line-through" : isActive ? "text-white font-medium animate-pulse" : "text-zinc-600"}>
+                              {step}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div id="recent-workspaces" className="relative w-full max-w-5xl mx-auto px-6 pb-24 z-10 pointer-events-none -mt-12 scroll-mt-24">
+        <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-neutral-800 to-transparent my-12" />
+        
+        <h2 className="text-xs font-semibold tracking-widest text-zinc-500 uppercase flex items-center gap-2 mb-6">
+          <Terminal className="h-4 w-4 text-zinc-500" /> Recent Workspaces
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full pointer-events-auto">
+          {recentRepos.length > 0 ? (
+            recentRepos.map((project) => (
+              <div 
+                key={project.id}
+                onClick={() => handleSelectWorkspace(project.id, project.url)}
+                className="group relative bg-neutral-900/20 border border-neutral-900 backdrop-blur-md rounded-xl p-5 hover:bg-neutral-900/40 hover:border-zinc-800 transition-all cursor-pointer flex items-start justify-between"
+              >
+                <div className="flex gap-4 items-start">
+                  <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-lg group-hover:border-zinc-700 transition-all text-zinc-400 group-hover:text-white">
+                    <FolderGit2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-sm text-zinc-200 group-hover:text-white transition-colors">
+                      {project.owner} <span className="text-zinc-600">/</span> {project.name}
+                    </h3>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500">
+                      <span className="flex items-center gap-1">
+                        <span className={`w-2 h-2 rounded-full inline-block ${
+                          project.status === "INDEXED" ? "bg-[#0fbf3e]" : project.status === "INDEXING" ? "bg-yellow-500 animate-pulse" : "bg-red-500"
+                        }`} /> 
+                        {project.status === "INDEXED" ? "Ready" : project.status === "INDEXING" ? "Indexing" : "Failed"}
+                      </span>
+                      {project.fileCount !== null && (
+                        <>
+                          <span>•</span>
+                          <span>{project.fileCount} Files</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-[10px] uppercase font-medium tracking-wider px-2 py-1 bg-zinc-900/80 border border-zinc-800 text-zinc-400 rounded-md">
+                  {project.status}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="col-span-2 text-center py-8 text-xs text-zinc-600 border border-dashed border-neutral-800 rounded-xl">
+              No active workspaces found. Paste a GitHub URL above to index your first repository.
             </div>
-          </div>
+          )}
         </div>
-      </RevealSection>
+      </div>
+
+      <AnimatePresence>
+        {isDocsOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsDocsOpen(false)}
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm pointer-events-auto"
+            />
+
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed top-0 right-0 bottom-0 w-full max-w-lg z-50 bg-[#0d1117] border-l border-neutral-800 shadow-2xl p-6 overflow-y-auto pointer-events-auto flex flex-col"
+            >
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-4 mb-6">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-[#0fbf3e]/10 border border-[#0fbf3e]/20 rounded-lg text-[#0fbf3e]">
+                    <BookOpen className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-lg text-white">Documentation Guide</h3>
+                    <p className="text-xs text-zinc-500">Learn how to maximize GitScope AI</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsDocsOpen(false)}
+                  className="p-1.5 hover:bg-neutral-800 rounded-lg text-zinc-400 hover:text-white transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 space-y-6 text-sm">
+                
+                <div className="p-4 bg-gradient-to-br from-[#0fbf3e]/5 to-transparent border border-[#0fbf3e]/10 rounded-xl">
+                  <h4 className="font-semibold text-white mb-1.5 flex items-center gap-2">
+                    <HelpCircle className="w-4 h-4 text-[#0fbf3e]" />
+                    What is GitScope AI?
+                  </h4>
+                  <p className="text-zinc-300 text-xs leading-relaxed">
+                    GitScope AI is an advanced workspace agent designed to help developers comprehend legacy architectures, find symbols, and solve codebase issues locally.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-white border-b border-neutral-800 pb-1">Getting Started</h4>
+                  <ol className="space-y-4">
+                    <li className="flex gap-3">
+                      <span className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full bg-neutral-850 text-xs text-zinc-300 font-mono flex-shrink-0">1</span>
+                      <div>
+                        <h5 className="font-medium text-zinc-200 text-xs">Enter repository URL</h5>
+                        <p className="text-zinc-400 text-[11px] leading-relaxed mt-0.5">
+                          Paste any public GitHub repository URL into the command box. E.g. <code>https://github.com/spring-projects/spring-petclinic</code>.
+                        </p>
+                      </div>
+                    </li>
+                    <li className="flex gap-3">
+                      <span className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full bg-neutral-850 text-xs text-zinc-300 font-mono flex-shrink-0">2</span>
+                      <div>
+                        <h5 className="font-medium text-zinc-200 text-xs">Workspace Chunking & Embedding</h5>
+                        <p className="text-zinc-400 text-[11px] leading-relaxed mt-0.5">
+                          GitScope clones the code, tokenizes files into semantic chunks, generates vector embeddings using our local JVM ONNX model, and saves them to ChromaDB.
+                        </p>
+                      </div>
+                    </li>
+                    <li className="flex gap-3">
+                      <span className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full bg-neutral-850 text-xs text-zinc-300 font-mono flex-shrink-0">3</span>
+                      <div>
+                        <h5 className="font-medium text-zinc-200 text-xs">Converse with Architecture</h5>
+                        <p className="text-zinc-400 text-[11px] leading-relaxed mt-0.5">
+                          Once indexing completes, your workspace is ready. You can query files, ask visual architectures, and perform code chats.
+                        </p>
+                      </div>
+                    </li>
+                  </ol>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-white border-b border-neutral-800 pb-1">Chat & Issues Mode</h4>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+                      <h5 className="font-medium text-zinc-200 text-xs flex items-center gap-1.5">
+                        <Code2 className="w-3.5 h-3.5 text-[#0fbf3e]" />
+                        General Q&A
+                      </h5>
+                      <p className="text-zinc-400 text-[11px] leading-relaxed mt-1">
+                        Use the chat interface to ask questions about your codebase logic, file functions, configuration options, or to get help tracing complex call flows.
+                      </p>
+                    </div>
+
+                    <div className="p-3 bg-neutral-900/50 border border-neutral-800 rounded-lg">
+                      <h5 className="font-medium text-zinc-200 text-xs flex items-center gap-1.5">
+                        <Compass className="w-3.5 h-3.5 text-[#0fbf3e]" />
+                        Issues Solver
+                      </h5>
+                      <p className="text-zinc-400 text-[11px] leading-relaxed mt-1">
+                        Toggle the <b>Issues</b> mode in the prompt box, paste bug details or features list, and GitScope AI will analyze your workspace structure to prepare a verification and task checklist.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="border-t border-neutral-800 pt-4 mt-6 text-center">
+                <span className="text-[10px] text-zinc-600 font-mono">GitScope AI v1.0.0 • Local LLM & ChromaDB RAG</span>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
-  );
+  )
 }

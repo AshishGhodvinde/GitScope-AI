@@ -3,9 +3,6 @@ package com.gitscope.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
-/**
- * Request DTO for indexing a GitHub repository.
- */
 public record IndexRepositoryRequest(
         @NotBlank(message = "Repository URL is required")
         @Pattern(

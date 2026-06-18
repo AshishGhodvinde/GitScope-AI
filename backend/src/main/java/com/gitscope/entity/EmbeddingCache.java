@@ -4,10 +4,6 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
 
-/**
- * JPA entity representing a cached embedding vector, keyed by SHA-256 content hash.
- * This avoids re-vectorizing unchanged text chunks.
- */
 @Entity
 @Table(name = "embedding_cache", indexes = {
     @Index(name = "idx_content_hash", columnList = "content_hash", unique = true)
@@ -30,7 +26,7 @@ public class EmbeddingCache {
     private String content;
 
     @Column(name = "vector_json", nullable = false, columnDefinition = "TEXT")
-    private String vectorJson; // JSON representation of float[]
+    private String vectorJson; 
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

@@ -6,9 +6,6 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
-/**
- * JPA repository for ChatHistory — enables retrieval by repository ID.
- */
 @Repository
 public interface ChatHistoryJpaRepository extends JpaRepository<ChatHistory, Long> {
 

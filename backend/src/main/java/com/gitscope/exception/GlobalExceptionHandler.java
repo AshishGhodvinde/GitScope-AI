@@ -14,9 +14,6 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Global exception handler — converts all exceptions into structured JSON error responses.
- */
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {

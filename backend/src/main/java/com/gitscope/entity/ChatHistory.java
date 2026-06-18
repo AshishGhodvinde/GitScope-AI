@@ -4,9 +4,6 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
 
-/**
- * JPA entity representing a stored chat interaction for a repository.
- */
 @Entity
 @Table(name = "chat_history")
 @Getter
@@ -30,7 +27,7 @@ public class ChatHistory {
     private String answer;
 
     @Column(name = "sources", columnDefinition = "TEXT")
-    private String sources; // Comma-separated source file names
+    private String sources; 
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

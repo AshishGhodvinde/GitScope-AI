@@ -14,11 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * Service that handles the RAG pipeline: builds prompts and calls the Gemini Chat API.
- *
- * Prompt strategy: context-only answering with injection prevention.
- */
 @Service
 @Slf4j
 public class GeminiChatService {
@@ -33,33 +28,15 @@ public class GeminiChatService {
         this.objectMapper = new ObjectMapper();
     }
 
-    /**
-     * Sends a question with retrieved context to Gemini and returns the generated answer.
-     *
-     * @param question    the user's natural language question
-     * @param results     top-K retrieved chunks from ChromaDB
-     * @return the AI-generated answer
-     */
     public String generateAnswer(String question, List<SearchResult> results) {
         String prompt = buildPrompt(question, results);
         return callGemini(prompt);
     }
 
-    /**
-     * Generates an AI summary of the entire repository based on representative code samples.
-     *
-     * @param repositoryName   name of the repository
-     * @param codeContext      sample code content for context
-     * @return AI-generated summary
-     */
     public String generateSummary(String repositoryName, String codeContext) {
         String prompt = buildSummaryPrompt(repositoryName, codeContext);
         return callGemini(prompt);
     }
-
-    // ─────────────────────────────────────────────────────────────────
-    // Prompt construction
-    // ─────────────────────────────────────────────────────────────────
 
     public String buildPrompt(String question, List<SearchResult> results) {
         StringBuilder context = new StringBuilder();
@@ -139,10 +116,6 @@ public class GeminiChatService {
                 """.formatted(repositoryName, codeContext);
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    // Gemini API call
-    // ─────────────────────────────────────────────────────────────────
-
     private String callGemini(String prompt) {
         String primaryModel = geminiConfig.getModel();
         return callGeminiWithModel(prompt, primaryModel);
@@ -206,7 +179,6 @@ public class GeminiChatService {
                 }
             }
 
-            // Check for error response
             JsonNode error = root.path("error");
             if (!error.isMissingNode()) {
                 throw new AIServiceException("Gemini API error: " + error.path("message").asText());
@@ -220,12 +192,9 @@ public class GeminiChatService {
         }
     }
 
-    /**
-     * Sanitizes user input to prevent prompt injection attacks.
-     */
     private String sanitizeInput(String input) {
         if (input == null) return "";
-        // Remove patterns that could be used for prompt injection
+        
         return input
                 .replace("STRICT RULES:", "")
                 .replace("SYSTEM:", "")

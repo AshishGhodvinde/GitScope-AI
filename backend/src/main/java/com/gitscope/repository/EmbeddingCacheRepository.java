@@ -8,9 +8,6 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * JPA Repository for EmbeddingCache entity.
- */
 @Repository
 public interface EmbeddingCacheRepository extends JpaRepository<EmbeddingCache, Long> {
     Optional<EmbeddingCache> findByContentHash(String contentHash);

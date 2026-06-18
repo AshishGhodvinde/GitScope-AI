@@ -15,10 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Service that handles JVM in-process local embeddings using Spring AI ONNX Transformers.
- * Integrates with EmbeddingCacheRepository to persist generated vectors in PostgreSQL.
- */
 @Service
 @Slf4j
 public class LocalEmbeddingService {
@@ -34,9 +30,6 @@ public class LocalEmbeddingService {
         this.objectMapper = new ObjectMapper();
     }
 
-    /**
-     * Calculates the SHA-256 hash of a trimmed text string.
-     */
     public String calculateSHA256(String text) {
         if (text == null) return "";
         try {
@@ -55,9 +48,6 @@ public class LocalEmbeddingService {
         }
     }
 
-    /**
-     * Generates or fetches a cached embedding vector for the given text.
-     */
     public float[] getEmbedding(String text) {
         if (text == null || text.isBlank()) {
             return new float[0];
@@ -80,7 +70,6 @@ public class LocalEmbeddingService {
             throw new AIServiceException("Local embedding failed: " + e.getMessage(), e);
         }
 
-        // Cache the newly generated vector
         EmbeddingCache cacheEntry = EmbeddingCache.builder()
                 .contentHash(contentHash)
                 .content(text)
@@ -95,9 +84,6 @@ public class LocalEmbeddingService {
         return vector;
     }
 
-    /**
-     * Batch embeds a list of texts using the local cache and ONNX model.
-     */
     public List<float[]> getEmbeddingsBatch(List<String> texts) {
         if (texts == null || texts.isEmpty()) {
             return List.of();
@@ -109,9 +95,6 @@ public class LocalEmbeddingService {
         return results;
     }
 
-    /**
-     * Converts a float array to a List<Double> for ChromaDB compatibility.
-     */
     public List<Double> toDoubleList(float[] embedding) {
         List<Double> result = new ArrayList<>(embedding.length);
         for (float v : embedding) {

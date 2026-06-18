@@ -4,9 +4,6 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
 
-/**
- * JPA entity representing an indexed GitHub repository.
- */
 @Entity
 @Table(name = "repositories")
 @Getter

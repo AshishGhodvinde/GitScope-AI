@@ -3,10 +3,6 @@ package com.gitscope;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-/**
- * GitScope AI - AI-powered Repository Intelligence Platform
- * Main application entry point.
- */
 @SpringBootApplication
 public class GitScopeApplication {
 
