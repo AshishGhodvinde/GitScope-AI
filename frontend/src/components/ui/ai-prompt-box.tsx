@@ -155,30 +155,19 @@ Button.displayName = "Button";
 
 interface VoiceRecorderProps {
   isRecording: boolean;
-  onStartRecording: () => void;
-  onStopRecording: (duration: number) => void;
   visualizerBars?: number;
 }
 const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   isRecording,
-  onStartRecording,
-  onStopRecording,
   visualizerBars = 32,
 }) => {
   const [time, setTime] = React.useState(0);
 
-  const timeRef = React.useRef(0);
-  timeRef.current = time;
-
   React.useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
     if (isRecording) {
-      onStartRecording();
       interval = setInterval(() => setTime((t) => t + 1), 1000);
     } else {
-      if (timeRef.current > 0) {
-        onStopRecording(timeRef.current);
-      }
       setTime(0);
     }
     return () => {
@@ -446,6 +435,17 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
     }
   }, [initialValue]);
 
+  React.useEffect(() => {
+    if (isRecording) {
+      startSpeechRecognition();
+    } else {
+      stopSpeechRecognition();
+    }
+    return () => {
+      stopSpeechRecognition();
+    };
+  }, [isRecording]);
+
   const handleToggleMode = (targetMode: PromptMode) => {
     setMode((prev) => (prev === targetMode ? "chat" : targetMode));
   };
@@ -525,8 +525,16 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
   const startSpeechRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.log("Speech recognition not supported in this browser.");
+      console.warn("Speech recognition not supported in this browser.");
       return;
+    }
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch (e) {
+        console.error("Failed to abort existing recognition:", e);
+      }
     }
 
     const rec = new SpeechRecognition();
@@ -551,14 +559,24 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
 
     rec.onerror = (e: any) => {
       console.error("Speech recognition error:", e);
+      if (recognitionRef.current === rec) {
+        setIsRecording(false);
+      }
     };
 
     rec.onend = () => {
-      setIsRecording(false);
+      if (recognitionRef.current === rec) {
+        setIsRecording(false);
+      }
     };
 
     recognitionRef.current = rec;
-    rec.start();
+    try {
+      rec.start();
+    } catch (err) {
+      console.error("Failed to start speech recognition:", err);
+      setIsRecording(false);
+    }
   };
 
   const stopSpeechRecognition = () => {
@@ -568,18 +586,8 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
       } catch (e) {
         console.error("Failed to stop recognition", e);
       }
+      recognitionRef.current = null;
     }
-  };
-
-  const handleStartRecording = () => {
-    console.log("Started recording");
-    startSpeechRecognition();
-  };
-
-  const handleStopRecording = (duration: number) => {
-    console.log(`Stopped recording after ${duration} seconds`);
-    setIsRecording(false);
-    stopSpeechRecognition();
   };
 
   const hasContent = input.trim() !== "" || files.length > 0;
@@ -656,8 +664,6 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
         {isRecording && (
           <VoiceRecorder
             isRecording={isRecording}
-            onStartRecording={handleStartRecording}
-            onStopRecording={handleStopRecording}
           />
         )}
 
