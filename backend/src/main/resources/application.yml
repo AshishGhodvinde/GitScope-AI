@@ -41,6 +41,12 @@ spring:
     embedding:
       transformer:
         enabled: true
+        cache:
+          enabled: false
+        onnx:
+          model-uri: file:/app/onnx/model.onnx
+        tokenizer:
+          uri: file:/app/onnx/tokenizer.json
 
 gemini:
   api:
