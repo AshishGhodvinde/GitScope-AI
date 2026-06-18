@@ -53,8 +53,7 @@ services:
       SPRING_DATASOURCE_URL:      jdbc:postgresql://postgres:5432/gitscope
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
-      CHROMA_HOST:    chromadb
-      CHROMA_PORT:    8000
+      CHROMA_API_URL: http://chromadb:8000
       TOP_K_RESULTS:  5
       CLONE_DIR:      /app/tmp/repos
     depends_on:

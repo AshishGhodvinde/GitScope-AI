@@ -8,16 +8,13 @@ import org.springframework.context.annotation.Configuration;
 @Getter
 public class ChromaConfig {
 
-    @Value("${chroma.host}")
-    private String host;
-
-    @Value("${chroma.port}")
-    private int port;
+    @Value("${chroma.api.url}")
+    private String apiUrl;
 
     @Value("${chroma.collection-name}")
     private String collectionName;
 
     public String getBaseUrl() {
-        return "http://" + host + ":" + port;
+        return apiUrl;
     }
 }
