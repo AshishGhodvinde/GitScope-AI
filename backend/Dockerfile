@@ -22,4 +22,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD bash -c 'echo > /dev/tcp/localhost/8080 || exit 1'
 
-ENTRYPOINT ["java", "-Xmx200m", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-Xmx260m", "-jar", "app.jar"]
