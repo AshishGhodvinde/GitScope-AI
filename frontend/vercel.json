@@ -1,0 +1,8 @@
+{
+    "rewrites": [
+        {
+            "source": "/api/:path*",
+            "destination": "https://ashishghodvinde-gitscope-backend.hf.space/api/:path*"
+        }
+    ]
+}
