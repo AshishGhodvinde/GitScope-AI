@@ -459,10 +459,15 @@ export default function WorkspacePage({ repoUrl, onBack }: WorkspacePageProps) {
     document.addEventListener("mouseup", stopDrag)
   }
   
-  const [repoSummary] = useState("")
+  const [repoSummary, setRepoSummary] = useState("")
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isAiLoading, setIsAiLoading] = useState(false)
-  const [flatFiles] = useState<string[]>([])
+  const [flatFiles, setFlatFiles] = useState<string[]>([])
+  const [ratings, setRatings] = useState<Record<string, number>>({
+    "Maintainability": 92,
+    "Security Profile": 88,
+    "Performance": 94
+  })
   const [fileFilter, setFileFilter] = useState("")
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set())
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
@@ -472,15 +477,42 @@ export default function WorkspacePage({ repoUrl, onBack }: WorkspacePageProps) {
   const [copiedFile, setCopiedFile] = useState(false)
 
   useEffect(() => {
-    // Derive repo details from the URL directly — no DB fetch needed
-    setRepoDetails({
-      repoIdentifier: repoUrl + "#main",
-      repoUrl,
-      branch: "main",
-      status: "COMPLETED",
-      fileCount: null,
-      chunkCount: null,
-    } as RepositoryDetails)
+    let active = true
+    const id = repoUrl + "#main"
+
+    fetch(`/api/repositories/status?id=${encodeURIComponent(id)}`)
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to load repository details")
+        return res.json()
+      })
+      .then(data => {
+        if (!active) return
+        setRepoDetails({
+          repoIdentifier: data.repoIdentifier || id,
+          repoUrl,
+          branch: "main",
+          status: data.status || "COMPLETED",
+          fileCount: data.fileCount || null,
+          chunkCount: data.chunkCount || null,
+        } as RepositoryDetails)
+
+        if (data.files) {
+          setFlatFiles(data.files)
+        }
+        if (data.summary) {
+          setRepoSummary(data.summary)
+        }
+        if (data.architecturePulse) {
+          setRatings(data.architecturePulse)
+        }
+      })
+      .catch(err => {
+        console.error("Error fetching repository status details:", err)
+      })
+
+    return () => {
+      active = false
+    }
   }, [repoUrl])
 
   const { owner, name } = useMemo(() => {
@@ -921,9 +953,9 @@ Feel free to browse files in the explorer on the right or type your first query 
                 
                 <div className="space-y-1.5">
                   {[
-                    { label: "Maintainability", score: 92 },
-                    { label: "Security Profile", score: 88 },
-                    { label: "Performance", score: 94 }
+                    { label: "Maintainability", score: ratings["Maintainability"] ?? 92 },
+                    { label: "Security Profile", score: ratings["Security Profile"] ?? 88 },
+                    { label: "Performance", score: ratings["Performance"] ?? 94 }
                   ].map((rate, idx) => (
                     <div key={idx} className="space-y-1">
                       <div className="flex justify-between text-[10px]">

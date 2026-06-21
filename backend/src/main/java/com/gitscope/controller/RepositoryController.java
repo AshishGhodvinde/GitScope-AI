@@ -44,7 +44,7 @@ public class RepositoryController {
      * The {@code id} parameter is the composite {@code repoIdentifier} string.
      */
     @GetMapping("/status")
-    public ResponseEntity<StatusResponse> getStatus(@RequestParam String id) {
+    public ResponseEntity<RepoDetails> getStatus(@RequestParam String id) {
         log.info("GET /api/repositories/status?id={}", id);
         return ResponseEntity.ok(repositoryService.getStatus(id));
     }
