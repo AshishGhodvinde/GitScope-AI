@@ -36,7 +36,7 @@ public class CodebaseIngestionWorker {
     );
 
     private static final int UPLOAD_BATCH_SIZE = 200;
-    private static final int MAX_CHUNKS_CAP = 1000;
+    private static final int MAX_CHUNKS_CAP = 2000;
 
     private final ConcurrentHashMap<String, RepoDetails> repositoryCache = new ConcurrentHashMap<>();
 
