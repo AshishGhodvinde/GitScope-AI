@@ -1,18 +1,19 @@
 package com.gitscope.controller;
 
-import com.gitscope.dto.ChatHistoryResponse;
 import com.gitscope.dto.ChatRequest;
-import com.gitscope.dto.ChatResponse;
 import com.gitscope.service.ChatService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
-import java.util.List;
-
+/**
+ * REST controller for streaming AI chat responses.
+ *
+ * <p>Stateless — no database IDs. Chat is scoped to a repository via
+ * {@code repoUrl} + optional {@code branch} in the request body.
+ */
 @RestController
 @RequestMapping("/api/chat")
 @Slf4j
@@ -24,15 +25,14 @@ public class ChatController {
         this.chatService = chatService;
     }
 
+    /**
+     * Streams an AI answer for the given question about the specified repository.
+     * The frontend should read the response as Server-Sent Events (text/event-stream).
+     */
     @PostMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chat(@Valid @RequestBody ChatRequest request) {
-        log.info("POST /api/chat (streaming) - repoId={}, question='{}'",
-                request.repositoryId(), request.question());
+        log.info("POST /api/chat (streaming) - repoUrl={} question='{}'",
+                request.repoUrl(), request.question());
         return chatService.chatStream(request);
-    }
-
-    @GetMapping("/history/{repositoryId}")
-    public ResponseEntity<List<ChatHistoryResponse>> getHistory(@PathVariable Long repositoryId) {
-        return ResponseEntity.ok(chatService.getHistory(repositoryId));
     }
 }

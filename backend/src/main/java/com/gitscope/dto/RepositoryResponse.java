@@ -1,12 +1,10 @@
 package com.gitscope.dto;
 
 public record RepositoryResponse(
-        Long id,
-        String name,
-        String owner,
-        String url,
+        String repoIdentifier,
+        String repoUrl,
+        String branch,
         String status,
         Integer fileCount,
-        Integer chunkCount,
-        String indexedAt
+        Integer chunkCount
 ) {}

@@ -6,8 +6,13 @@ import jakarta.validation.constraints.Pattern;
 public record IndexRepositoryRequest(
         @NotBlank(message = "Repository URL is required")
         @Pattern(
-                regexp = "https://github\\.com/[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+",
+                regexp = "https://github\\.com/[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+.*",
                 message = "Must be a valid public GitHub repository URL"
         )
-        String repositoryUrl
+        String repositoryUrl,
+
+        /**
+         * Git branch to clone. Defaults to "main" if not specified.
+         */
+        String branch
 ) {}

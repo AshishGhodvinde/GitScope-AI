@@ -3,26 +3,18 @@ import LandingPage from "@/pages/LandingPage"
 import WorkspacePage from "@/pages/WorkspacePage"
 
 function App() {
-  const [activeRepoId, setActiveRepoId] = useState<number | null>(null)
   const [activeRepoUrl, setActiveRepoUrl] = useState<string>("")
 
   return (
     <>
-      {activeRepoId ? (
+      {activeRepoUrl ? (
         <WorkspacePage 
-          repoId={activeRepoId} 
           repoUrl={activeRepoUrl} 
-          onBack={() => { 
-            setActiveRepoId(null); 
-            setActiveRepoUrl(""); 
-          }} 
+          onBack={() => setActiveRepoUrl("")} 
         />
       ) : (
         <LandingPage 
-          onSelectRepo={(id, url) => { 
-            setActiveRepoId(id); 
-            setActiveRepoUrl(url); 
-          }} 
+          onSelectRepo={(url) => setActiveRepoUrl(url)} 
         />
       )}
     </>

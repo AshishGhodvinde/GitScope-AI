@@ -428,8 +428,6 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
   const uploadInputRef = React.useRef<HTMLInputElement>(null);
   const promptBoxRef = React.useRef<HTMLDivElement>(null);
   const recognitionRef = React.useRef<any>(null);
-  const isRecordingRef = React.useRef(false);
-  const intentionalStopRef = React.useRef(false);
 
   React.useEffect(() => {
     if (initialValue) {
@@ -438,16 +436,12 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
   }, [initialValue]);
 
   React.useEffect(() => {
-    isRecordingRef.current = isRecording;
     if (isRecording) {
-      intentionalStopRef.current = false;
       startSpeechRecognition();
     } else {
-      intentionalStopRef.current = true;
       stopSpeechRecognition();
     }
     return () => {
-      intentionalStopRef.current = true;
       stopSpeechRecognition();
     };
   }, [isRecording]);
@@ -541,14 +535,12 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
       } catch (e) {
         console.error("Failed to abort existing recognition:", e);
       }
-      recognitionRef.current = null;
     }
 
     const rec = new SpeechRecognition();
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = "en-US";
-    rec.maxAlternatives = 1;
 
     rec.onresult = (e: any) => {
       let finalTranscript = "";
@@ -566,26 +558,13 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
     };
 
     rec.onerror = (e: any) => {
-      console.error("Speech recognition error:", e.error);
-      // On 'no-speech' or 'audio-capture', don't stop – browser will fire onend and we restart
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        intentionalStopRef.current = true;
+      console.error("Speech recognition error:", e);
+      if (recognitionRef.current === rec) {
         setIsRecording(false);
       }
     };
 
     rec.onend = () => {
-      // If the stop was NOT intentional (i.e. browser auto-stopped), restart automatically
-      if (!intentionalStopRef.current && isRecordingRef.current) {
-        try {
-          rec.start();
-        } catch (_) {
-          // If restart fails, create a fresh instance
-          recognitionRef.current = null;
-          startSpeechRecognition();
-        }
-        return;
-      }
       if (recognitionRef.current === rec) {
         setIsRecording(false);
       }

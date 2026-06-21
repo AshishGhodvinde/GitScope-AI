@@ -10,24 +10,41 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+/**
+ * Stateless ChromaDB adapter.
+ *
+ * All vector operations are scoped by a composite {@code repoIdentifier}
+ * (format: {@code repoUrl#branch}) stored as a metadata field on every document.
+ * There are no relational DB IDs involved.
+ */
 @Service
 @Slf4j
 public class VectorStoreService {
 
     private static final String DEFAULT_TENANT   = "default_tenant";
     private static final String DEFAULT_DATABASE = "default_database";
+    // Single shared collection — all repos live here, differentiated by metadata
+    private static final String COLLECTION_NAME  = "gitscope_chunks";
 
     private final RestTemplate restTemplate;
     private final ChromaConfig chromaConfig;
     private final ObjectMapper objectMapper;
+
+    // Cached collection ID to avoid re-fetching on every request
+    private volatile String cachedCollectionId = null;
 
     public VectorStoreService(RestTemplate restTemplate, ChromaConfig chromaConfig) {
         this.restTemplate = restTemplate;
         this.chromaConfig = chromaConfig;
         this.objectMapper = new ObjectMapper();
     }
+
+    // -----------------------------------------------------------------------
+    // URL helpers
+    // -----------------------------------------------------------------------
 
     private String collectionsUrl() {
         return chromaConfig.getBaseUrl()
@@ -42,54 +59,98 @@ public class VectorStoreService {
         return h;
     }
 
-    public String getOrCreateCollection(String collectionName) {
-        
-        forceDeleteCollectionByName(collectionName);
+    // -----------------------------------------------------------------------
+    // Collection lifecycle
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns the ChromaDB collection ID for the shared {@code gitscope_chunks} collection,
+     * creating it if it does not exist. Result is cached in-process.
+     */
+    public String getOrCreateSharedCollection() {
+        if (cachedCollectionId != null) return cachedCollectionId;
 
         String url = collectionsUrl();
         Map<String, Object> body = Map.of(
-                "name", collectionName,
+                "name", COLLECTION_NAME,
                 "get_or_create", true
         );
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, jsonHeaders());
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.POST, entity, String.class);
-
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
             if (response.getBody() == null) {
                 throw new AIServiceException("Empty response from ChromaDB when creating collection");
             }
-
             JsonNode root = objectMapper.readTree(response.getBody());
-            String collectionId = root.path("id").asText();
-            log.info("ChromaDB collection created: {} (id={})", collectionName, collectionId);
-            return collectionId;
-
+            cachedCollectionId = root.path("id").asText();
+            log.info("ChromaDB shared collection ready: {} (id={})", COLLECTION_NAME, cachedCollectionId);
+            return cachedCollectionId;
         } catch (AIServiceException e) {
             throw e;
         } catch (Exception e) {
-            throw new AIServiceException("Failed to create ChromaDB collection: " + e.getMessage(), e);
+            throw new AIServiceException("Failed to get/create ChromaDB collection: " + e.getMessage(), e);
         }
     }
 
-    public void upsertChunks(String collectionId, Long repositoryId, List<CodeChunk> chunks, List<List<Double>> embeddings) {
+    // -----------------------------------------------------------------------
+    // Ghost-chunk purge
+    // -----------------------------------------------------------------------
+
+    /**
+     * Deletes all vectors whose {@code repoIdentifier} metadata matches the given value.
+     * Called before each ingestion run to ensure clean upserts with no ghost chunks.
+     */
+    public void deleteByRepoIdentifier(String repoIdentifier) {
+        String collectionId = getOrCreateSharedCollection();
+        String url = collectionsUrl() + "/" + collectionId + "/delete";
+
+        Map<String, Object> whereClause = Map.of("repoIdentifier", Map.of("$eq", repoIdentifier));
+        Map<String, Object> body = Map.of("where", whereClause);
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, jsonHeaders());
+
+        try {
+            restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+            log.info("Purged all vectors for repoIdentifier={}", repoIdentifier);
+        } catch (Exception e) {
+            // Non-fatal: collection may be empty. Log and continue.
+            log.warn("Could not purge vectors for {} (may be empty): {}", repoIdentifier, e.getMessage());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Upsert
+    // -----------------------------------------------------------------------
+
+    /**
+     * Stores chunks into ChromaDB with deterministic UUIDs and repoIdentifier metadata.
+     * IDs are derived deterministically from {@code repoIdentifier + "-" + filePath + "-" + chunkIndex}
+     * using UUID.nameUUIDFromBytes, ensuring perfect idempotent upserts.
+     */
+    public void upsertChunks(String repoIdentifier, List<CodeChunk> chunks, List<List<Double>> embeddings) {
+        String collectionId = getOrCreateSharedCollection();
         String url = collectionsUrl() + "/" + collectionId + "/upsert";
 
-        List<String> ids = new ArrayList<>();
-        List<String> documents = new ArrayList<>();
+        List<String> ids          = new ArrayList<>();
+        List<String> documents    = new ArrayList<>();
         List<Map<String, Object>> metadatas = new ArrayList<>();
 
         for (int i = 0; i < chunks.size(); i++) {
             CodeChunk chunk = chunks.get(i);
-            ids.add(chunk.getId());
+
+            // Deterministic UUID
+            String uniqueKey = repoIdentifier + "-" + chunk.getFilePath() + "-" + i;
+            String deterministicId = UUID.nameUUIDFromBytes(
+                    uniqueKey.getBytes(StandardCharsets.UTF_8)).toString();
+
+            ids.add(deterministicId);
             documents.add(chunk.getContent());
 
             Map<String, Object> metadata = new HashMap<>();
-            metadata.put("filePath", chunk.getFilePath());
-            metadata.put("language", chunk.getLanguage());
-            metadata.put("chunkType", chunk.getChunkType());
-            metadata.put("repository_id", String.valueOf(repositoryId));
+            metadata.put("repoIdentifier", repoIdentifier);
+            metadata.put("filePath",        chunk.getFilePath());
+            metadata.put("language",        chunk.getLanguage());
+            metadata.put("chunkType",       chunk.getChunkType());
             if (chunk.getClassName()  != null) metadata.put("className",  chunk.getClassName());
             if (chunk.getMethodName() != null) metadata.put("methodName", chunk.getMethodName());
             metadatas.add(metadata);
@@ -106,45 +167,58 @@ public class VectorStoreService {
 
         try {
             restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-            log.debug("Upserted {} chunks into ChromaDB collection {}", chunks.size(), collectionId);
+            log.debug("Upserted {} chunks into ChromaDB for repoIdentifier={}", chunks.size(), repoIdentifier);
         } catch (Exception e) {
             String msg = e.getMessage();
             if (msg != null && msg.contains("dimension")) {
                 throw new AIServiceException(
                     "Embedding dimension mismatch in ChromaDB. " +
-                    "A stale collection with a different model's dimensions was found. " +
-                    "Run: docker volume rm <chroma_volume> and restart. Details: " + msg, e);
+                    "A stale collection with a different model's dimensions was detected. " +
+                    "Restart with a fresh ChromaDB volume. Details: " + msg, e);
             }
             throw new AIServiceException("Failed to upsert chunks into ChromaDB: " + msg, e);
         }
     }
 
-    public List<SearchResult> query(String collectionId, List<Double> queryEmbedding, int topK, Long repositoryId) {
+    // -----------------------------------------------------------------------
+    // Query
+    // -----------------------------------------------------------------------
+
+    /**
+     * Runs a vector similarity search scoped strictly to the given {@code repoIdentifier}.
+     */
+    public List<SearchResult> queryByRepoIdentifier(
+            String repoIdentifier, List<Double> queryEmbedding, int topK) {
+
+        String collectionId = getOrCreateSharedCollection();
         String url = collectionsUrl() + "/" + collectionId + "/query";
+
+        Map<String, Object> whereClause = Map.of("repoIdentifier", Map.of("$eq", repoIdentifier));
 
         Map<String, Object> body = Map.of(
                 "query_embeddings", List.of(queryEmbedding),
                 "n_results",        topK,
-                "where",            Map.of("repository_id", String.valueOf(repositoryId)),
+                "where",            whereClause,
                 "include",          List.of("documents", "metadatas", "distances")
         );
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, jsonHeaders());
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.POST, entity, String.class);
-
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
             if (response.getBody() == null) {
                 return List.of();
             }
-
             return parseQueryResults(response.getBody());
-
         } catch (Exception e) {
+            log.error("ChromaDB query failed for repoIdentifier={}: {}", repoIdentifier, e.getMessage());
             throw new AIServiceException("ChromaDB query failed: " + e.getMessage(), e);
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Legacy compatibility shim (kept for VectorStoreService.deleteCollection)
+    // -----------------------------------------------------------------------
 
     public void deleteCollection(String collectionIdOrName) {
         if (collectionIdOrName == null || collectionIdOrName.isBlank()) return;
@@ -158,17 +232,9 @@ public class VectorStoreService {
         }
     }
 
-    private void forceDeleteCollectionByName(String collectionName) {
-        
-        String url = collectionsUrl() + "/" + collectionName;
-        try {
-            restTemplate.delete(url);
-            log.info("Pre-deleted stale ChromaDB collection '{}' before recreation.", collectionName);
-        } catch (Exception e) {
-            
-            log.debug("No stale collection '{}' to delete ({})", collectionName, e.getMessage());
-        }
-    }
+    // -----------------------------------------------------------------------
+    // Private helpers
+    // -----------------------------------------------------------------------
 
     private List<SearchResult> parseQueryResults(String json) {
         List<SearchResult> results = new ArrayList<>();
@@ -181,10 +247,10 @@ public class VectorStoreService {
             if (docs == null || !docs.isArray()) return results;
 
             for (int i = 0; i < docs.size(); i++) {
-                String   content    = docs.get(i).asText();
-                JsonNode meta       = metas     != null ? metas.get(i)     : null;
-                double   distance   = distances != null && distances.get(i) != null
-                                      ? distances.get(i).asDouble() : 1.0;
+                String   content  = docs.get(i).asText();
+                JsonNode meta     = metas     != null ? metas.get(i)     : null;
+                double   distance = distances != null && distances.get(i) != null
+                                    ? distances.get(i).asDouble() : 1.0;
 
                 String filePath   = meta != null ? meta.path("filePath").asText("")   : "";
                 String language   = meta != null ? meta.path("language").asText("")   : "";
@@ -198,6 +264,10 @@ public class VectorStoreService {
         }
         return results;
     }
+
+    // -----------------------------------------------------------------------
+    // Result type
+    // -----------------------------------------------------------------------
 
     public record SearchResult(
             String content,

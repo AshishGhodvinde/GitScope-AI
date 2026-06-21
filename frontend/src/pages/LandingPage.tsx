@@ -5,15 +5,14 @@ import { Navbar } from "@/components/ui/mini-navbar"
 import { Search, ArrowRight, FolderGit2, Terminal, CheckCircle2, AlertCircle, Loader2, X, BookOpen, HelpCircle, Code2, Compass } from "lucide-react"
 
 interface LandingPageProps {
-  onSelectRepo: (id: number, url: string) => void;
+  onSelectRepo: (url: string) => void;
 }
 
 interface RepositoryListItem {
-  id: number;
-  name: string;
-  owner: string;
-  url: string;
-  status: "INDEXING" | "INDEXED" | "FAILED";
+  repoIdentifier: string;
+  repoUrl: string;
+  branch: string;
+  status: string;
   fileCount: number | null;
   chunkCount: number | null;
 }
@@ -24,7 +23,7 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
   const [recentRepos, setRecentRepos] = useState<RepositoryListItem[]>([])
   const [isDocsOpen, setIsDocsOpen] = useState(false)
   const [indexingCompleted, setIndexingCompleted] = useState(false)
-  const [indexedRepoId, setIndexedRepoId] = useState<number | null>(null)
+  const [indexedRepoIdentifier, setIndexedRepoIdentifier] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
   const [activeStep, setActiveStep] = useState(0)
   const [errorMsg, setErrorMsg] = useState("")
@@ -84,18 +83,41 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
       body: JSON.stringify({ repositoryUrl: repoUrl.trim() })
     })
       .then(async (res) => {
-        clearInterval(progressInterval)
-        if (!res.ok) {
+        // 202 Accepted is the success response for async ingestion
+        if (!res.ok && res.status !== 202) {
           const text = await res.text().catch(() => "Indexing request failed")
           throw new Error(text || `HTTP error! Status: ${res.status}`)
         }
         return res.json()
       })
       .then((data) => {
-        setProgress(100)
-        setActiveStep(4)
-        setIndexedRepoId(data.repositoryId)
-        setIndexingCompleted(true)
+        const identifier: string = data.repoIdentifier
+        setIndexedRepoIdentifier(identifier)
+        // Start polling the status endpoint until COMPLETED or FAILED
+        const pollStatus = () => {
+          fetch(`/api/repositories/status?id=${encodeURIComponent(identifier)}`)
+            .then(r => r.json())
+            .then((statusData) => {
+              if (statusData.status === "COMPLETED") {
+                clearInterval(progressInterval)
+                setProgress(100)
+                setActiveStep(4)
+                setIndexingCompleted(true)
+              } else if (statusData.status === "FAILED" || statusData.status === "FAILED_EMPTY") {
+                clearInterval(progressInterval)
+                const msg = statusData.status === "FAILED_EMPTY"
+                  ? "No matching source code files found. The repository may contain only binary or lock files."
+                  : (statusData.message || "Indexing failed on the server.")
+                setErrorMsg(msg)
+                setIsIndexing(false)
+              }
+              // INGESTING — keep polling
+            })
+            .catch(() => { /* keep polling */ })
+        }
+        const pollInterval = setInterval(pollStatus, 2500)
+        // Clear poll interval after max 10 minutes
+        setTimeout(() => clearInterval(pollInterval), 600000)
       })
       .catch((err) => {
         clearInterval(progressInterval)
@@ -105,9 +127,9 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
       })
   }
 
-  const handleSelectWorkspace = (id: number, url: string) => {
+  const handleSelectWorkspace = (url: string) => {
     if (isIndexing) return
-    onSelectRepo(id, url)
+    onSelectRepo(url)
   }
 
   return (
@@ -243,11 +265,11 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
                       <button
                         type="button"
                         onClick={() => {
-                          if (indexedRepoId) {
-                            onSelectRepo(indexedRepoId, repoUrl.trim());
+                          if (indexedRepoIdentifier) {
+                            onSelectRepo(repoUrl.trim());
                             setIsIndexing(false);
                             setIndexingCompleted(false);
-                            setIndexedRepoId(null);
+                            setIndexedRepoIdentifier(null);
                           }
                         }}
                         className="px-5 py-2.5 rounded-full bg-[#0fbf3e] hover:bg-[#2ea44f] text-black font-semibold text-xs transition-all shadow-lg shadow-[#0fbf3e]/20 flex items-center gap-1.5 cursor-pointer"
@@ -296,11 +318,20 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full pointer-events-auto">
           {recentRepos.length > 0 ? (
-            recentRepos.map((project) => (
+            recentRepos.map((project) => {
+              // Parse owner/name from the repoUrl
+              const urlParts = project.repoUrl.replace(/\.git$/, "").split("/")
+              const repoName  = urlParts[urlParts.length - 1] ?? project.repoUrl
+              const repoOwner = urlParts[urlParts.length - 2] ?? ""
+              const isReady   = project.status === "COMPLETED"
+              const isFailing = project.status === "FAILED" || project.status === "FAILED_EMPTY"
+              return (
               <div 
-                key={project.id}
-                onClick={() => handleSelectWorkspace(project.id, project.url)}
-                className="group relative bg-neutral-900/20 border border-neutral-900 backdrop-blur-md rounded-xl p-5 hover:bg-neutral-900/40 hover:border-zinc-800 transition-all cursor-pointer flex items-start justify-between"
+                key={project.repoIdentifier}
+                onClick={() => isReady && handleSelectWorkspace(project.repoUrl)}
+                className={`group relative bg-neutral-900/20 border border-neutral-900 backdrop-blur-md rounded-xl p-5 hover:bg-neutral-900/40 hover:border-zinc-800 transition-all flex items-start justify-between ${
+                  isReady ? "cursor-pointer" : "cursor-default opacity-75"
+                }`}
               >
                 <div className="flex gap-4 items-start">
                   <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-lg group-hover:border-zinc-700 transition-all text-zinc-400 group-hover:text-white">
@@ -308,19 +339,19 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
                   </div>
                   <div>
                     <h3 className="font-medium text-sm text-zinc-200 group-hover:text-white transition-colors">
-                      {project.owner} <span className="text-zinc-600">/</span> {project.name}
+                      {repoOwner} <span className="text-zinc-600">/</span> {repoName}
                     </h3>
                     <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500">
                       <span className="flex items-center gap-1">
                         <span className={`w-2 h-2 rounded-full inline-block ${
-                          project.status === "INDEXED" ? "bg-[#0fbf3e]" : project.status === "INDEXING" ? "bg-yellow-500 animate-pulse" : "bg-red-500"
+                          isReady ? "bg-[#0fbf3e]" : isFailing ? "bg-red-500" : "bg-yellow-500 animate-pulse"
                         }`} /> 
-                        {project.status === "INDEXED" ? "Ready" : project.status === "INDEXING" ? "Indexing" : "Failed"}
+                        {isReady ? "Ready" : isFailing ? "Failed" : "Indexing"}
                       </span>
-                      {project.fileCount !== null && (
+                      {project.branch && project.branch !== "main" && (
                         <>
                           <span>•</span>
-                          <span>{project.fileCount} Files</span>
+                          <span>{project.branch}</span>
                         </>
                       )}
                     </div>
@@ -330,7 +361,8 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
                   {project.status}
                 </div>
               </div>
-            ))
+              )
+            })
           ) : (
             <div className="col-span-2 text-center py-8 text-xs text-zinc-600 border border-dashed border-neutral-800 rounded-xl">
               No active workspaces found. Paste a GitHub URL above to index your first repository.

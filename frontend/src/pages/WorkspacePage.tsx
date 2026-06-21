@@ -22,7 +22,6 @@ import type { PromptMode } from "@/components/ui/ai-prompt-box"
 import { LiquidAurora } from "@/components/ui/liquid-aurora"
 
 interface WorkspacePageProps {
-  repoId: number;
   repoUrl: string;
   onBack: () => void;
 }
@@ -44,10 +43,9 @@ interface FileNode {
 }
 
 interface RepositoryDetails {
-  id: number;
-  name: string;
-  owner: string;
-  url: string;
+  repoIdentifier: string;
+  repoUrl: string;
+  branch: string;
   status: string;
   fileCount: number | null;
   chunkCount: number | null;
@@ -406,7 +404,7 @@ function BeautifulSummary({ text }: { text: string }) {
   return <FormattedMessage text={text} />;
 }
 
-export default function WorkspacePage({ repoId, repoUrl, onBack }: WorkspacePageProps) {
+export default function WorkspacePage({ repoUrl, onBack }: WorkspacePageProps) {
   const [hasQueried, setHasQueried] = useState(false)
   const [repoDetails, setRepoDetails] = useState<RepositoryDetails | null>(null)
   const [activeTab, setActiveTab] = useState<"chat" | "summary">("chat")
@@ -474,43 +472,29 @@ export default function WorkspacePage({ repoId, repoUrl, onBack }: WorkspacePage
   const [copiedFile, setCopiedFile] = useState(false)
 
   useEffect(() => {
-    fetch(`/api/repositories/${repoId}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data) setRepoDetails(data)
-      })
-      .catch(err => console.error("Error loading repo details:", err))
-
-    fetch(`/api/repositories/${repoId}/files`)
-      .then(res => res.ok ? res.json() : [])
-      .then(data => {
-        if (Array.isArray(data)) {
-          const paths = data.map((f: any) => f.path)
-          setFlatFiles(paths)
-        }
-      })
-      .catch(err => console.error("Error loading files list:", err))
-
-    fetch(`/api/repositories/${repoId}/summary`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data?.summary) {
-          setRepoSummary(data.summary)
-        }
-      })
-      .catch(err => console.error("Error loading summary:", err))
-  }, [repoId])
+    // Derive repo details from the URL directly — no DB fetch needed
+    const urlParts = repoUrl.replace(/\.git$/, "").replace(/\/$/, "").split("/")
+    const derivedName  = urlParts[urlParts.length - 1] ?? ""
+    const derivedOwner = urlParts[urlParts.length - 2] ?? ""
+    setRepoDetails({
+      repoIdentifier: repoUrl + "#main",
+      repoUrl,
+      branch: "main",
+      status: "COMPLETED",
+      fileCount: null,
+      chunkCount: null,
+    } as RepositoryDetails)
+  }, [repoUrl])
 
   const { owner, name } = useMemo(() => {
-    if (repoDetails) return { owner: repoDetails.owner, name: repoDetails.name }
     try {
       const parts = repoUrl.replace(/\/$/, "").split("/")
       if (parts.length >= 2) {
         return { owner: parts[parts.length - 2], name: parts[parts.length - 1] }
       }
     } catch (e) {}
-    return { owner: "shashiraraja", name: "shopping-cart" }
-  }, [repoDetails, repoUrl])
+    return { owner: "unknown", name: "repository" }
+  }, [repoUrl])
 
   const languageBreakdown = useMemo(() => {
     if (flatFiles.length === 0) return []
@@ -655,7 +639,7 @@ Feel free to browse files in the explorer on the right or type your first query 
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repositoryId: repoId, question: userPrompt })
+        body: JSON.stringify({ repoUrl: repoUrl, question: userPrompt })
       })
 
       if (!response.ok) {
@@ -713,22 +697,8 @@ Feel free to browse files in the explorer on the right or type your first query 
         )
       }
 
-      setTimeout(async () => {
-        try {
-          const histRes = await fetch(`/api/chat/history/${repoId}`)
-          if (histRes.ok) {
-            const historyList = await histRes.json()
-            if (Array.isArray(historyList) && historyList.length > 0) {
-              const latest = historyList[0] 
-              setMessages(prev =>
-                prev.map(m => m.id === assistantMessageId ? { ...m, citations: latest.sources } : m)
-              )
-            }
-          }
-        } catch (e) {
-          console.error("Citations fetch failed", e)
-        }
-      }, 500)
+      // Chat history endpoint removed in stateless architecture
+      // Citations are available directly from the streaming response
 
     } catch (err) {
       console.error(err)

@@ -1,13 +1,17 @@
 package com.gitscope.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Pattern;
 
 public record ChatRequest(
-        @NotNull(message = "Repository ID is required")
-        @Positive(message = "Repository ID must be positive")
-        Long repositoryId,
+        @NotBlank(message = "Repository URL is required")
+        @Pattern(
+                regexp = "https://github\\.com/[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+.*",
+                message = "Must be a valid public GitHub repository URL"
+        )
+        String repoUrl,
+
+        String branch,
 
         @NotBlank(message = "Question is required")
         String question

@@ -1,6 +1,6 @@
 package com.gitscope.dto;
 
-public record IndexRepositoryResponse(
+public record StatusResponse(
         String repoIdentifier,
         String status,
         String message

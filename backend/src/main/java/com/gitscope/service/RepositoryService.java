@@ -2,235 +2,226 @@ package com.gitscope.service;
 
 import com.gitscope.dto.*;
 import com.gitscope.embedding.LocalEmbeddingService;
-import com.gitscope.entity.FileEntity;
-import com.gitscope.entity.RepositoryEntity;
-import com.gitscope.entity.RepositoryEntity.IndexStatus;
 import com.gitscope.exception.RepositoryIndexingException;
-import com.gitscope.exception.RepositoryNotFoundException;
 import com.gitscope.github.ChunkingService;
 import com.gitscope.github.CodeChunk;
 import com.gitscope.github.GitHubService;
-import com.gitscope.rag.GeminiChatService;
-import com.gitscope.repository.FileRepository;
-import com.gitscope.repository.RepositoryJpaRepository;
 import com.gitscope.vectorstore.VectorStoreService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.File;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+/**
+ * Stateless, async-capable repository ingestion service.
+ *
+ * <p>All state is tracked in a thread-safe in-memory {@link ConcurrentHashMap}.
+ * There is no relational database. Each repository is uniquely identified by a
+ * composite key: {@code repoUrl + "#" + branch}.
+ *
+ * <p>Possible status values:
+ * <ul>
+ *   <li>{@code INGESTING} – background thread is running</li>
+ *   <li>{@code COMPLETED} – ingestion finished successfully</li>
+ *   <li>{@code FAILED} – ingestion encountered a fatal error</li>
+ *   <li>{@code FAILED_EMPTY} – no whitelisted source files found</li>
+ * </ul>
+ */
 @Service
 @Slf4j
 public class RepositoryService {
 
-    private static final int BATCH_SIZE = 20; 
+    // ---------------------------------------------------------------------------
+    // Extension whitelist: only meaningful plain-text source code extensions
+    // ---------------------------------------------------------------------------
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            ".java", ".ts", ".js", ".py", ".cpp", ".c", ".cs",
+            ".go", ".rb", ".rs", ".kt", ".md", ".json", ".yml",
+            ".yaml", ".html", ".css"
+    );
 
-    private final GitHubService gitHubService;
-    private final ChunkingService chunkingService;
+    // Paths/filenames that are always excluded regardless of extension
+    private static final Set<String> EXCLUDED_FILENAMES = Set.of(
+            "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "license", "licence"
+    );
+    private static final Set<String> EXCLUDED_PATH_SEGMENTS = Set.of(
+            "node_modules", "target", "build", "dist", ".git", "coverage", "__pycache__"
+    );
+
+    private static final int BATCH_SIZE = 20;
+    private static final String DEFAULT_BRANCH = "main";
+
+    // ---------------------------------------------------------------------------
+    // In-memory state store: repoIdentifier → status string
+    // ---------------------------------------------------------------------------
+    private final ConcurrentHashMap<String, String> statusMap       = new ConcurrentHashMap<>();
+    // repoIdentifier → extra info (e.g. error message or file/chunk counts)
+    private final ConcurrentHashMap<String, String> statusDetailMap = new ConcurrentHashMap<>();
+
+    // ---------------------------------------------------------------------------
+    // Dependencies
+    // ---------------------------------------------------------------------------
+    private final GitHubService       gitHubService;
+    private final ChunkingService     chunkingService;
     private final LocalEmbeddingService embeddingService;
-    private final VectorStoreService vectorStoreService;
-    private final GeminiChatService geminiChatService;
-    private final RepositoryJpaRepository repositoryJpaRepository;
-    private final FileRepository fileRepository;
+    private final VectorStoreService  vectorStoreService;
 
     public RepositoryService(
             GitHubService gitHubService,
             ChunkingService chunkingService,
             LocalEmbeddingService embeddingService,
-            VectorStoreService vectorStoreService,
-            GeminiChatService geminiChatService,
-            RepositoryJpaRepository repositoryJpaRepository,
-            FileRepository fileRepository
+            VectorStoreService vectorStoreService
     ) {
-        this.gitHubService = gitHubService;
-        this.chunkingService = chunkingService;
-        this.embeddingService = embeddingService;
+        this.gitHubService      = gitHubService;
+        this.chunkingService    = chunkingService;
+        this.embeddingService   = embeddingService;
         this.vectorStoreService = vectorStoreService;
-        this.geminiChatService = geminiChatService;
-        this.repositoryJpaRepository = repositoryJpaRepository;
-        this.fileRepository = fileRepository;
     }
 
-    @Transactional
+    // ---------------------------------------------------------------------------
+    // Public API — called by the controller
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Accepts an indexing request, records the {@code INGESTING} status immediately,
+     * and kicks off the background worker via {@link #runIngestion}.
+     *
+     * @return a response with status {@code INGESTING} and the tracking identifier
+     */
     public IndexRepositoryResponse indexRepository(IndexRepositoryRequest request) {
-        String url = request.repositoryUrl().trim();
-        String repoName = gitHubService.extractRepoName(url);
-        String owner = gitHubService.extractOwner(url);
+        String url    = request.repositoryUrl().trim();
+        String branch = (request.branch() != null && !request.branch().isBlank())
+                        ? request.branch().trim()
+                        : DEFAULT_BRANCH;
+        String repoIdentifier = buildIdentifier(url, branch);
 
-        log.info("Starting indexing for repository: {}/{}", owner, repoName);
+        log.info("Queuing ingestion for repoIdentifier={}", repoIdentifier);
+        statusMap.put(repoIdentifier, "INGESTING");
+        statusDetailMap.remove(repoIdentifier);
 
-        RepositoryEntity entity;
-        if (repositoryJpaRepository.existsByUrl(url)) {
-            entity = repositoryJpaRepository.findByUrl(url)
-                    .orElseThrow(() -> new RepositoryNotFoundException(url));
-            
-            if (entity.getChromaCollectionId() != null) {
-                vectorStoreService.deleteCollection(entity.getChromaCollectionId());
-            }
-            fileRepository.deleteByRepositoryId(entity.getId());
-            entity.setStatus(IndexStatus.INDEXING);
-            entity.setIndexedAt(LocalDateTime.now());
-            entity.setSummary(null); 
-        } else {
-            entity = RepositoryEntity.builder()
-                    .name(repoName)
-                    .owner(owner)
-                    .url(url)
-                    .status(IndexStatus.INDEXING)
-                    .indexedAt(LocalDateTime.now())
-                    .build();
-        }
-        entity = repositoryJpaRepository.save(entity);
+        // Fire-and-forget async
+        runIngestion(repoIdentifier, url, branch);
 
+        return new IndexRepositoryResponse(repoIdentifier, "INGESTING",
+                "Indexing started in the background. Poll /api/repositories/status?id=" + repoIdentifier);
+    }
+
+    /**
+     * Returns the current ingestion status for the given {@code repoIdentifier}.
+     */
+    public StatusResponse getStatus(String repoIdentifier) {
+        String status = statusMap.getOrDefault(repoIdentifier, "NOT_FOUND");
+        String detail = statusDetailMap.getOrDefault(repoIdentifier, "");
+        return new StatusResponse(repoIdentifier, status, detail);
+    }
+
+    /**
+     * Returns a snapshot of all known repositories and their statuses.
+     */
+    public List<RepositoryResponse> getAllRepositories() {
+        return statusMap.entrySet().stream()
+                .map(entry -> {
+                    String id     = entry.getKey();
+                    String status = entry.getValue();
+                    String[] parts = id.split("#", 2);
+                    String url     = parts[0];
+                    String branch  = parts.length > 1 ? parts[1] : DEFAULT_BRANCH;
+                    return new RepositoryResponse(id, url, branch, status, null, null);
+                })
+                .collect(Collectors.toList());
+    }
+
+    // ---------------------------------------------------------------------------
+    // @Async — background ingestion worker
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Runs the full ingestion pipeline in a Spring-managed async thread pool.
+     * Updates {@link #statusMap} to either {@code COMPLETED}, {@code FAILED}, or {@code FAILED_EMPTY}.
+     */
+    @Async
+    public void runIngestion(String repoIdentifier, String repoUrl, String branch) {
         File cloneDir = null;
         try {
-            
-            cloneDir = gitHubService.cloneRepository(url);
+            log.info("[ASYNC] Starting ingestion for repoIdentifier={}", repoIdentifier);
 
-            List<File> scannedFiles = gitHubService.scanSourceFiles(cloneDir);
-            List<String> scannedPaths = gitHubService.getRelativePaths(cloneDir, scannedFiles);
+            // 1. Clone
+            cloneDir = gitHubService.cloneRepository(repoUrl);
 
-            List<File> sourceFiles = new ArrayList<>();
-            List<String> allFilePaths = new ArrayList<>();
-            for (int i = 0; i < scannedFiles.size(); i++) {
-                File file = scannedFiles.get(i);
-                String relPath = scannedPaths.get(i);
-                if (isJunkFile(file.getName(), relPath)) {
-                    continue;
+            // 2. Scan & filter files
+            List<File>   rawFiles   = gitHubService.scanSourceFiles(cloneDir);
+            List<String> rawPaths   = gitHubService.getRelativePaths(cloneDir, rawFiles);
+
+            List<File>   sourceFiles = new ArrayList<>();
+            List<String> filePaths   = new ArrayList<>();
+            for (int i = 0; i < rawFiles.size(); i++) {
+                if (isAllowed(rawFiles.get(i).getName(), rawPaths.get(i))) {
+                    sourceFiles.add(rawFiles.get(i));
+                    filePaths.add(rawPaths.get(i));
                 }
-                sourceFiles.add(file);
-                allFilePaths.add(relPath);
             }
-            log.info("Found {} source files in {} (after filtering junk files)", sourceFiles.size(), repoName);
+            log.info("[ASYNC] {} whitelisted source files for repoIdentifier={}", sourceFiles.size(), repoIdentifier);
 
+            // 3. Empty-codebase safety guard
+            if (sourceFiles.isEmpty()) {
+                log.warn("[ASYNC] No whitelisted files found — setting FAILED_EMPTY for {}", repoIdentifier);
+                statusMap.put(repoIdentifier, "FAILED_EMPTY");
+                statusDetailMap.put(repoIdentifier,
+                        "No matching source code files found. The repository may contain only binary or lock files.");
+                return;
+            }
+
+            // 4. Chunk files
             List<CodeChunk> allChunks = new ArrayList<>();
             for (int i = 0; i < sourceFiles.size(); i++) {
-                List<CodeChunk> fileChunks = chunkingService.chunkFile(sourceFiles.get(i), allFilePaths.get(i));
+                List<CodeChunk> fileChunks = chunkingService.chunkFile(sourceFiles.get(i), filePaths.get(i));
                 allChunks.addAll(fileChunks);
             }
             List<CodeChunk> nonBlankChunks = allChunks.stream()
                     .filter(c -> c.getContent() != null && !c.getContent().trim().isEmpty())
                     .collect(Collectors.toList());
-            log.info("Generated {} chunks ({} non-blank) from {} files", allChunks.size(), nonBlankChunks.size(), sourceFiles.size());
+            log.info("[ASYNC] {} non-blank chunks for repoIdentifier={}", nonBlankChunks.size(), repoIdentifier);
 
-            String collectionName = "repo_" + entity.getId();
-            String collectionId = vectorStoreService.getOrCreateCollection(collectionName);
+            // 5. Ghost-chunk purge — wipe any stale vectors for this exact repo+branch
+            vectorStoreService.deleteByRepoIdentifier(repoIdentifier);
 
-            fileRepository.deleteByRepositoryId(entity.getId()); 
-            List<FileEntity> fileEntities = new ArrayList<>();
-            for (String path : allFilePaths) {
-                fileEntities.add(FileEntity.builder()
-                        .repositoryId(entity.getId())
-                        .path(path)
-                        .build());
-            }
-            fileRepository.saveAll(fileEntities);
+            // 6. Embed + upsert in batches
+            embedAndStore(repoIdentifier, nonBlankChunks);
 
-            embedAndStore(nonBlankChunks, collectionId, entity.getId());
-
-            entity.setFileCount(sourceFiles.size());
-            entity.setChunkCount(nonBlankChunks.size());
-            entity.setStatus(IndexStatus.INDEXED);
-            entity.setChromaCollectionId(collectionId);
-            entity = repositoryJpaRepository.save(entity);
-
-            log.info("Successfully indexed {}/{}: {} files, {} chunks",
-                    owner, repoName, sourceFiles.size(), allChunks.size());
-
-            return new IndexRepositoryResponse(
-                    entity.getId(), entity.getName(), entity.getOwner(),
-                    entity.getStatus().name(), entity.getFileCount(), entity.getChunkCount());
+            // 7. Mark complete
+            String detail = String.format("files=%d chunks=%d", sourceFiles.size(), nonBlankChunks.size());
+            statusMap.put(repoIdentifier, "COMPLETED");
+            statusDetailMap.put(repoIdentifier, detail);
+            log.info("[ASYNC] Ingestion COMPLETED for repoIdentifier={} ({})", repoIdentifier, detail);
 
         } catch (Exception e) {
-            
-            entity.setStatus(IndexStatus.FAILED);
-            repositoryJpaRepository.save(entity);
-            log.error("Indexing failed for {}: {}", url, e.getMessage(), e);
-            throw new RepositoryIndexingException("Indexing failed: " + e.getMessage(), e);
+            log.error("[ASYNC] Ingestion FAILED for repoIdentifier={}: {}", repoIdentifier, e.getMessage(), e);
+            statusMap.put(repoIdentifier, "FAILED");
+            statusDetailMap.put(repoIdentifier, e.getMessage());
         } finally {
-            
             if (cloneDir != null) {
                 gitHubService.cleanupDirectory(cloneDir);
             }
         }
     }
 
-    public RepositoryResponse getRepository(Long id) {
-        RepositoryEntity entity = repositoryJpaRepository.findById(id)
-                .orElseThrow(() -> new RepositoryNotFoundException(id));
+    // ---------------------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------------------
 
-        return toResponse(entity);
-    }
-
-    public SummaryResponse getSummary(Long id) {
-        RepositoryEntity entity = repositoryJpaRepository.findById(id)
-                .orElseThrow(() -> new RepositoryNotFoundException(id));
-
-        if (entity.getStatus() != IndexStatus.INDEXED) {
-            throw new RepositoryIndexingException("Repository is not fully indexed yet. Status: " + entity.getStatus());
-        }
-
-        if (entity.getSummary() != null && !entity.getSummary().isBlank()) {
-            log.info("Returning cached summary for repository: {}", entity.getName());
-            return new SummaryResponse(entity.getId(), entity.getName(), entity.getSummary());
-        }
-
-        log.info("Generating new summary via Gemini for repository: {}", entity.getName());
-
-        float[] queryEmbedding = embeddingService.getEmbedding(
-                "project overview architecture purpose tech stack modules");
-        List<Double> queryVector = embeddingService.toDoubleList(queryEmbedding);
-
-        List<VectorStoreService.SearchResult> results = vectorStoreService.query(
-                entity.getChromaCollectionId(), queryVector, 10, entity.getId());
-
-        String codeContext = results.stream()
-                .map(r -> "File: " + r.filePath() + "\n" + r.content())
-                .collect(Collectors.joining("\n\n---\n\n"));
-
-        String summary = geminiChatService.generateSummary(entity.getName(), codeContext);
-
-        entity.setSummary(summary);
-        repositoryJpaRepository.save(entity);
-
-        return new SummaryResponse(entity.getId(), entity.getName(), summary);
-    }
-
-    public List<FileEntity> getFiles(Long id) {
-        
-        repositoryJpaRepository.findById(id)
-                .orElseThrow(() -> new RepositoryNotFoundException(id));
-        return fileRepository.findByRepositoryId(id);
-    }
-
-    public List<RepositoryResponse> getAllRepositories() {
-        return repositoryJpaRepository.findAll().stream()
-                .map(this::toResponse)
-                .toList();
-    }
-
-    private void embedAndStore(List<CodeChunk> chunks, String collectionId, Long repositoryId) {
+    private void embedAndStore(String repoIdentifier, List<CodeChunk> chunks) {
         for (int i = 0; i < chunks.size(); i += BATCH_SIZE) {
-            List<CodeChunk> batch = chunks.subList(i, Math.min(i + BATCH_SIZE, chunks.size()));
-            List<String> contents = batch.stream().map(CodeChunk::getContent).collect(Collectors.toList());
+            List<CodeChunk> batch    = chunks.subList(i, Math.min(i + BATCH_SIZE, chunks.size()));
+            List<String>    contents = batch.stream().map(CodeChunk::getContent).collect(Collectors.toList());
 
-            List<float[]> rawEmbeddings;
-            try {
-                
-                rawEmbeddings = embeddingService.getEmbeddingsBatch(contents);
-            } catch (Exception e) {
-                log.error("Failed to generate local embeddings for batch", e);
-                throw e;
-            }
-
+            List<float[]> rawEmbeddings = embeddingService.getEmbeddingsBatch(contents);
             if (rawEmbeddings == null || rawEmbeddings.size() != batch.size()) {
-                throw new RuntimeException("Generated embeddings size mismatch. Expected " + batch.size() + ", got " + (rawEmbeddings == null ? 0 : rawEmbeddings.size()));
+                throw new RuntimeException("Embeddings size mismatch: expected " + batch.size()
+                        + ", got " + (rawEmbeddings == null ? 0 : rawEmbeddings.size()));
             }
 
             List<List<Double>> embeddings = new ArrayList<>();
@@ -238,34 +229,39 @@ public class RepositoryService {
                 embeddings.add(embeddingService.toDoubleList(emb));
             }
 
-            vectorStoreService.upsertChunks(collectionId, repositoryId, batch, embeddings);
-            log.info("Embedded and stored batch {}/{}", Math.min(i + BATCH_SIZE, chunks.size()), chunks.size());
+            vectorStoreService.upsertChunks(repoIdentifier, batch, embeddings);
+            log.info("[ASYNC] Embedded batch {}/{} for repoIdentifier={}",
+                    Math.min(i + BATCH_SIZE, chunks.size()), chunks.size(), repoIdentifier);
         }
     }
 
-    private boolean isJunkFile(String fileName, String relPath) {
+    /**
+     * Returns {@code true} if the file should be indexed.
+     * Applies the extension whitelist and path-segment blacklist.
+     */
+    private boolean isAllowed(String fileName, String relPath) {
         String name = fileName.toLowerCase();
         String path = relPath.toLowerCase().replace("\\", "/");
-        return name.equals("readme.md")
-                || name.equals("license")
-                || name.equals("package-lock.json")
-                || name.equals("yarn.lock")
-                || name.equals("pnpm-lock.yaml")
-                || name.endsWith(".class")
-                || name.endsWith(".jar")
-                || path.contains("/dist/")
-                || path.contains("/build/")
-                || path.contains("/target/")
-                || path.contains("node_modules")
-                || path.contains(".git");
+
+        // Excluded filenames
+        if (EXCLUDED_FILENAMES.contains(name)) return false;
+
+        // Excluded path segments (node_modules, .git, target, etc.)
+        for (String seg : EXCLUDED_PATH_SEGMENTS) {
+            if (path.contains("/" + seg + "/") || path.startsWith(seg + "/")) {
+                return false;
+            }
+        }
+
+        // Extension whitelist
+        int dotIdx = name.lastIndexOf('.');
+        if (dotIdx < 0) return false;
+        String ext = name.substring(dotIdx);
+        return ALLOWED_EXTENSIONS.contains(ext);
     }
 
-    private RepositoryResponse toResponse(RepositoryEntity entity) {
-        String indexedAt = entity.getIndexedAt() != null
-                ? entity.getIndexedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                : null;
-        return new RepositoryResponse(
-                entity.getId(), entity.getName(), entity.getOwner(), entity.getUrl(),
-                entity.getStatus().name(), entity.getFileCount(), entity.getChunkCount(), indexedAt);
+    /** Builds the composite unique identifier for a repository. */
+    public static String buildIdentifier(String repoUrl, String branch) {
+        return repoUrl.trim() + "#" + (branch != null && !branch.isBlank() ? branch.trim() : DEFAULT_BRANCH);
     }
 }
