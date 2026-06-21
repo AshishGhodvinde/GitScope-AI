@@ -317,18 +317,19 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full pointer-events-auto">
-          {recentRepos.length > 0 ? (
+          {recentRepos && recentRepos.length > 0 ? (
             recentRepos.map((project) => {
-              // Parse owner/name from the repoUrl
-              const urlParts = project.repoUrl.replace(/\.git$/, "").split("/")
-              const repoName  = urlParts[urlParts.length - 1] ?? project.repoUrl
-              const repoOwner = urlParts[urlParts.length - 2] ?? ""
-              const isReady   = project.status === "COMPLETED"
-              const isFailing = project.status === "FAILED" || project.status === "FAILED_EMPTY"
+              // Parse owner/name safely from the repoUrl
+              const repoUrl = project?.repoUrl || project?.repoIdentifier?.split("#")?.[0] || "";
+              const urlParts = repoUrl ? repoUrl.replace(/\.git$/, "").split("/") : [];
+              const repoName  = urlParts[urlParts.length - 1] ?? repoUrl ?? "Unknown Repository";
+              const repoOwner = urlParts[urlParts.length - 2] ?? "";
+              const isReady   = project?.status === "COMPLETED";
+              const isFailing = project?.status === "FAILED" || project?.status === "FAILED_EMPTY";
               return (
               <div 
-                key={project.repoIdentifier}
-                onClick={() => isReady && handleSelectWorkspace(project.repoUrl)}
+                key={project?.repoIdentifier || repoUrl}
+                onClick={() => isReady && handleSelectWorkspace(repoUrl)}
                 className={`group relative bg-neutral-900/20 border border-neutral-900 backdrop-blur-md rounded-xl p-5 hover:bg-neutral-900/40 hover:border-zinc-800 transition-all flex items-start justify-between ${
                   isReady ? "cursor-pointer" : "cursor-default opacity-75"
                 }`}
@@ -348,24 +349,36 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
                         }`} /> 
                         {isReady ? "Ready" : isFailing ? "Failed" : "Indexing"}
                       </span>
-                      {project.branch && project.branch !== "main" && (
+                      {project?.branch && project.branch !== "main" && (
                         <>
                           <span>•</span>
                           <span>{project.branch}</span>
+                        </>
+                      )}
+                      {isReady && project?.fileCount != null && project.fileCount > 0 && (
+                        <>
+                          <span>•</span>
+                          <span>{project.fileCount} files</span>
+                        </>
+                      )}
+                      {isReady && project?.chunkCount != null && project.chunkCount > 0 && (
+                        <>
+                          <span>•</span>
+                          <span>{project.chunkCount} chunks</span>
                         </>
                       )}
                     </div>
                   </div>
                 </div>
                 <div className="text-[10px] uppercase font-medium tracking-wider px-2 py-1 bg-zinc-900/80 border border-zinc-800 text-zinc-400 rounded-md">
-                  {project.status}
+                  {project?.status || "UNKNOWN"}
                 </div>
               </div>
               )
             })
           ) : (
             <div className="col-span-2 text-center py-8 text-xs text-zinc-600 border border-dashed border-neutral-800 rounded-xl">
-              No active workspaces found. Paste a GitHub URL above to index your first repository.
+              No recent workspaces found. Paste a GitHub URL above to index your first repository.
             </div>
           )}
         </div>

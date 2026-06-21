@@ -517,7 +517,8 @@ export default function WorkspacePage({ repoUrl, onBack }: WorkspacePageProps) {
 
   const { owner, name } = useMemo(() => {
     try {
-      const parts = repoUrl.replace(/\/$/, "").split("/")
+      const cleanUrl = repoUrl?.replace(/\/$/, "") || "";
+      const parts = cleanUrl.split("/")
       if (parts.length >= 2) {
         return { owner: parts[parts.length - 2], name: parts[parts.length - 1] }
       }
