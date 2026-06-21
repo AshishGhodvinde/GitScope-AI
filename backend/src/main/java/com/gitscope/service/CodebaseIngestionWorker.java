@@ -36,7 +36,7 @@ public class CodebaseIngestionWorker {
     );
 
     private static final int UPLOAD_BATCH_SIZE = 200;
-    private static final int MAX_CHUNKS_CAP = 2000;
+    private static final int MAX_CHUNKS_CAP = 1000;
 
     private final ConcurrentHashMap<String, RepoDetails> repositoryCache = new ConcurrentHashMap<>();
 
@@ -212,15 +212,15 @@ public class CodebaseIngestionWorker {
      * and uploads final vectors in batches of 200 to ChromaDB.
      */
     private void embedAndStore(String repoIdentifier, List<CodeChunk> chunks) {
-        log.info("[ASYNC] Generating local embeddings in parallel for {} chunks...", chunks.size());
+        log.info("[ASYNC] Generating local embeddings sequentially for {} chunks...", chunks.size());
 
-        List<ChunkWithEmbedding> processed = chunks.parallelStream().map(chunk -> {
+        List<ChunkWithEmbedding> processed = chunks.stream().map(chunk -> {
             float[] emb = embeddingService.getEmbedding(chunk.getContent());
             List<Double> doubleList = embeddingService.toDoubleList(emb);
             return new ChunkWithEmbedding(chunk, doubleList);
         }).toList();
 
-        log.info("[ASYNC] Parallel embedding generation complete. Uploading to ChromaDB in batches of {}...", UPLOAD_BATCH_SIZE);
+        log.info("[ASYNC] Sequential embedding generation complete. Uploading to ChromaDB in batches of {}...", UPLOAD_BATCH_SIZE);
 
         for (int i = 0; i < processed.size(); i += UPLOAD_BATCH_SIZE) {
             List<ChunkWithEmbedding> batch = processed.subList(i, Math.min(i + UPLOAD_BATCH_SIZE, processed.size()));
