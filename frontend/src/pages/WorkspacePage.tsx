@@ -459,10 +459,10 @@ export default function WorkspacePage({ repoUrl, onBack }: WorkspacePageProps) {
     document.addEventListener("mouseup", stopDrag)
   }
   
-  const [repoSummary, setRepoSummary] = useState("")
+  const [repoSummary] = useState("")
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isAiLoading, setIsAiLoading] = useState(false)
-  const [flatFiles, setFlatFiles] = useState<string[]>([])
+  const [flatFiles] = useState<string[]>([])
   const [fileFilter, setFileFilter] = useState("")
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set())
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
@@ -473,9 +473,6 @@ export default function WorkspacePage({ repoUrl, onBack }: WorkspacePageProps) {
 
   useEffect(() => {
     // Derive repo details from the URL directly — no DB fetch needed
-    const urlParts = repoUrl.replace(/\.git$/, "").replace(/\/$/, "").split("/")
-    const derivedName  = urlParts[urlParts.length - 1] ?? ""
-    const derivedOwner = urlParts[urlParts.length - 2] ?? ""
     setRepoDetails({
       repoIdentifier: repoUrl + "#main",
       repoUrl,
