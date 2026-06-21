@@ -31,10 +31,12 @@ public class CodebaseIngestionWorker {
             "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "license", "licence"
     );
     private static final Set<String> EXCLUDED_PATH_SEGMENTS = Set.of(
-            "node_modules", "target", "build", "dist", ".git", "coverage", "__pycache__"
+            "node_modules", ".git", "target", "build", "dist", "out",
+            "vendor", "assets", "public", "test", "spec", "docs"
     );
 
-    private static final int BATCH_SIZE = 20;
+    private static final int UPLOAD_BATCH_SIZE = 200;
+    private static final int MAX_CHUNKS_CAP = 1000;
 
     private final ConcurrentHashMap<String, RepoDetails> repositoryCache = new ConcurrentHashMap<>();
 
@@ -62,6 +64,10 @@ public class CodebaseIngestionWorker {
         return repositoryCache;
     }
 
+    private record PrioritizedFile(File file, String path, int priority) {}
+
+    private record ChunkWithEmbedding(CodeChunk chunk, List<Double> embedding) {}
+
     @Async
     public void runIngestion(String repoIdentifier, String repoUrl, String branch) {
         File cloneDir = null;
@@ -75,18 +81,19 @@ public class CodebaseIngestionWorker {
             List<File> rawFiles = gitHubService.scanSourceFiles(cloneDir);
             List<String> rawPaths = gitHubService.getRelativePaths(cloneDir, rawFiles);
 
-            List<File> sourceFiles = new ArrayList<>();
-            List<String> filePaths = new ArrayList<>();
+            // Gather all whitelisted paths for the full file explorer view
+            List<File> whitelistedFiles = new ArrayList<>();
+            List<String> whitelistedPaths = new ArrayList<>();
             for (int i = 0; i < rawFiles.size(); i++) {
                 if (isAllowed(rawFiles.get(i).getName(), rawPaths.get(i))) {
-                    sourceFiles.add(rawFiles.get(i));
-                    filePaths.add(rawPaths.get(i));
+                    whitelistedFiles.add(rawFiles.get(i));
+                    whitelistedPaths.add(rawPaths.get(i));
                 }
             }
-            log.info("[ASYNC] {} whitelisted source files for repoIdentifier={}", sourceFiles.size(), repoIdentifier);
+            log.info("[ASYNC] {} whitelisted source files discovered for repoIdentifier={}", whitelistedFiles.size(), repoIdentifier);
 
             // 3. Empty-codebase safety guard
-            if (sourceFiles.isEmpty()) {
+            if (whitelistedFiles.isEmpty()) {
                 log.warn("[ASYNC] No whitelisted files found — setting FAILED for {}", repoIdentifier);
                 RepoDetails details = repositoryCache.get(repoIdentifier);
                 if (details == null) details = new RepoDetails();
@@ -100,27 +107,69 @@ public class CodebaseIngestionWorker {
                 return;
             }
 
-            // 4. Chunk files
-            List<CodeChunk> allChunks = new ArrayList<>();
-            for (int i = 0; i < sourceFiles.size(); i++) {
-                List<CodeChunk> fileChunks = chunkingService.chunkFile(sourceFiles.get(i), filePaths.get(i));
-                allChunks.addAll(fileChunks);
+            // 4. Prioritize sorting the whitelisted source files
+            List<PrioritizedFile> prioritizedFiles = new ArrayList<>();
+            for (int i = 0; i < whitelistedFiles.size(); i++) {
+                String path = whitelistedPaths.get(i);
+                int priority = getFilePriority(path);
+                prioritizedFiles.add(new PrioritizedFile(whitelistedFiles.get(i), path, priority));
             }
-            List<CodeChunk> nonBlankChunks = allChunks.stream()
-                    .filter(c -> c.getContent() != null && !c.getContent().trim().isEmpty())
-                    .collect(Collectors.toList());
-            log.info("[ASYNC] {} non-blank chunks for repoIdentifier={}", nonBlankChunks.size(), repoIdentifier);
+            // Sort by priority descending (highest first), then by path lexicographically to keep it deterministic
+            prioritizedFiles.sort((a, b) -> {
+                if (a.priority() != b.priority()) {
+                    return Integer.compare(b.priority(), a.priority());
+                }
+                return a.path().compareTo(b.path());
+            });
 
-            // 5. Ghost-chunk purge — wipe any stale vectors for this exact repo+branch
+            // 5. Chunk files with a strict budget cap
+            List<CodeChunk> nonBlankChunks = new ArrayList<>();
+            Set<String> indexedFilePaths = new LinkedHashSet<>();
+            int totalChunksCount = 0;
+
+            for (PrioritizedFile pf : prioritizedFiles) {
+                if (totalChunksCount >= MAX_CHUNKS_CAP) {
+                    log.info("[ASYNC] Reached chunk budget cap of {} chunks. Skipping remaining files.", MAX_CHUNKS_CAP);
+                    break;
+                }
+
+                List<CodeChunk> fileChunks = chunkingService.chunkFile(pf.file(), pf.path());
+                boolean hasIndexedChunk = false;
+                for (CodeChunk chunk : fileChunks) {
+                    if (chunk.getContent() != null && !chunk.getContent().trim().isEmpty()) {
+                        nonBlankChunks.add(chunk);
+                        totalChunksCount++;
+                        hasIndexedChunk = true;
+                        if (totalChunksCount >= MAX_CHUNKS_CAP) {
+                            log.info("[ASYNC] Chunk budget cap of {} reached while processing file: {}. Stopping scanner.", MAX_CHUNKS_CAP, pf.path());
+                            indexedFilePaths.add(pf.path());
+                            break;
+                        }
+                    }
+                }
+                if (hasIndexedChunk) {
+                    indexedFilePaths.add(pf.path());
+                }
+            }
+            log.info("[ASYNC] Indexed {} non-blank chunks from {} files for repoIdentifier={}",
+                    nonBlankChunks.size(), indexedFilePaths.size(), repoIdentifier);
+
+            // 6. Ghost-chunk purge — wipe any stale vectors for this exact repo+branch
             vectorStoreService.deleteByRepoIdentifier(repoIdentifier);
 
-            // 6. Embed + upsert in batches
+            // 7. Parallel Local Embeddings & Batch Upload
             embedAndStore(repoIdentifier, nonBlankChunks);
 
-            // 7. Generate Codebase Blueprint/Summary
+            // 8. Generate Codebase Blueprint/Summary
             log.info("[ASYNC] Generating codebase summary/blueprint using Gemini...");
             String repoName = repoUrl.substring(repoUrl.lastIndexOf('/') + 1);
-            String codeContext = buildCodeContextForSummary(sourceFiles, filePaths);
+            // Build summary context from the files actually indexed (to be accurate to what's in the vector store)
+            List<File> indexedFiles = prioritizedFiles.stream()
+                    .filter(pf -> indexedFilePaths.contains(pf.path()))
+                    .map(PrioritizedFile::file)
+                    .collect(Collectors.toList());
+            List<String> indexedPathsList = new ArrayList<>(indexedFilePaths);
+            String codeContext = buildCodeContextForSummary(indexedFiles, indexedPathsList);
             String summary;
             try {
                 summary = geminiChatService.generateSummary(repoName, codeContext);
@@ -129,16 +178,16 @@ public class CodebaseIngestionWorker {
                 summary = "Failed to generate codebase blueprint. Please check if your Gemini API key is valid.";
             }
 
-            // 8. Compute ratings
-            Map<String, Integer> ratings = calculateArchitecturalRatings(sourceFiles, filePaths);
+            // 9. Compute ratings
+            Map<String, Integer> ratings = calculateArchitecturalRatings(indexedFiles, indexedPathsList);
 
-            // 9. Mark complete in repositoryCache
+            // 10. Mark complete in repositoryCache (passing full whitelistedPaths for tree browsing)
             RepoDetails details = repositoryCache.get(repoIdentifier);
             if (details == null) details = new RepoDetails();
             details.setStatus("COMPLETED");
-            details.setFileCount(sourceFiles.size());
+            details.setFileCount(indexedFilePaths.size());
             details.setChunkCount(nonBlankChunks.size());
-            details.setFiles(filePaths);
+            details.setFiles(whitelistedPaths); // Explorer tree shows all discovered whitelisted files
             details.setArchitecturePulse(ratings);
             details.setSummary(summary);
             repositoryCache.put(repoIdentifier, details);
@@ -158,25 +207,29 @@ public class CodebaseIngestionWorker {
         }
     }
 
+    /**
+     * Parallelizes the ONNX local embedding generations across CPU cores concurrently,
+     * and uploads final vectors in batches of 200 to ChromaDB.
+     */
     private void embedAndStore(String repoIdentifier, List<CodeChunk> chunks) {
-        for (int i = 0; i < chunks.size(); i += BATCH_SIZE) {
-            List<CodeChunk> batch = chunks.subList(i, Math.min(i + BATCH_SIZE, chunks.size()));
-            List<String> contents = batch.stream().map(CodeChunk::getContent).collect(Collectors.toList());
+        log.info("[ASYNC] Generating local embeddings in parallel for {} chunks...", chunks.size());
 
-            List<float[]> rawEmbeddings = embeddingService.getEmbeddingsBatch(contents);
-            if (rawEmbeddings == null || rawEmbeddings.size() != batch.size()) {
-                throw new RuntimeException("Embeddings size mismatch: expected " + batch.size()
-                        + ", got " + (rawEmbeddings == null ? 0 : rawEmbeddings.size()));
-            }
+        List<ChunkWithEmbedding> processed = chunks.parallelStream().map(chunk -> {
+            float[] emb = embeddingService.getEmbedding(chunk.getContent());
+            List<Double> doubleList = embeddingService.toDoubleList(emb);
+            return new ChunkWithEmbedding(chunk, doubleList);
+        }).toList();
 
-            List<List<Double>> embeddings = new ArrayList<>();
-            for (float[] emb : rawEmbeddings) {
-                embeddings.add(embeddingService.toDoubleList(emb));
-            }
+        log.info("[ASYNC] Parallel embedding generation complete. Uploading to ChromaDB in batches of {}...", UPLOAD_BATCH_SIZE);
 
-            vectorStoreService.upsertChunks(repoIdentifier, batch, embeddings);
-            log.info("[ASYNC] Embedded batch {}/{} for repoIdentifier={}",
-                    Math.min(i + BATCH_SIZE, chunks.size()), chunks.size(), repoIdentifier);
+        for (int i = 0; i < processed.size(); i += UPLOAD_BATCH_SIZE) {
+            List<ChunkWithEmbedding> batch = processed.subList(i, Math.min(i + UPLOAD_BATCH_SIZE, processed.size()));
+            List<CodeChunk> subChunks = batch.stream().map(ChunkWithEmbedding::chunk).collect(Collectors.toList());
+            List<List<Double>> subEmbeddings = batch.stream().map(ChunkWithEmbedding::embedding).collect(Collectors.toList());
+
+            vectorStoreService.upsertChunks(repoIdentifier, subChunks, subEmbeddings);
+            log.info("[ASYNC] Uploaded batch {}/{} to ChromaDB for repoIdentifier={}",
+                    Math.min(i + UPLOAD_BATCH_SIZE, processed.size()), processed.size(), repoIdentifier);
         }
     }
 
@@ -196,6 +249,34 @@ public class CodebaseIngestionWorker {
         if (dotIdx < 0) return false;
         String ext = name.substring(dotIdx);
         return ALLOWED_EXTENSIONS.contains(ext);
+    }
+
+    private int getFilePriority(String path) {
+        String p = path.toLowerCase();
+
+        // 1. Documentation & Metadata
+        if (p.endsWith("readme.md") || p.endsWith("pom.xml") || p.endsWith("package.json") ||
+            p.endsWith("go.mod") || p.endsWith("cargo.toml") ||
+            p.contains("config") || p.endsWith(".properties") || p.endsWith(".yml") || p.endsWith(".yaml")) {
+            return 4;
+        }
+
+        // 2. Entry Points
+        if (p.contains("controller") || p.contains("route") || p.contains("resource") || p.contains("endpoint")) {
+            return 3;
+        }
+
+        // 3. Core Operations
+        if (p.contains("service") || p.contains("util") || p.contains("helper") || p.contains("handler")) {
+            return 2;
+        }
+
+        // 4. Data Layouts
+        if (p.contains("model") || p.contains("entity") || p.contains("dto") || p.contains("repository") || p.contains("vo")) {
+            return 1;
+        }
+
+        return 0;
     }
 
     private String buildCodeContextForSummary(List<File> files, List<String> paths) {
