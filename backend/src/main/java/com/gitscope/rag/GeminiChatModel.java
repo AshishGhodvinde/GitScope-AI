@@ -73,10 +73,10 @@ public class GeminiChatModel implements ChatModel {
                 .bodyToFlux(JsonNode.class)
                 .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
                     int statusCode = ex.getStatusCode().value();
-                    if ((statusCode == 429 || statusCode == 503) && "gemini-2.5-flash".equals(primaryModel)) {
-                        log.warn("Primary model {} failed with status {}. Dynamically falling back to gemini-1.5-flash.", primaryModel, statusCode);
+                    if ((statusCode == 429 || statusCode == 503) && "gemini-3.5-flash".equals(primaryModel)) {
+                        log.warn("Primary model {} failed with status {}. Dynamically falling back to gemini-2.5-flash.", primaryModel, statusCode);
                         return webClient.post()
-                                .uri(buildGeminiUri("gemini-1.5-flash"))
+                                .uri(buildGeminiUri("gemini-2.5-flash"))
                                 .bodyValue(requestBody)
                                 .retrieve()
                                 .bodyToFlux(JsonNode.class);

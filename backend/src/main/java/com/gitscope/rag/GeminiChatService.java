@@ -208,9 +208,9 @@ public class GeminiChatService {
 
         } catch (org.springframework.web.client.HttpStatusCodeException e) {
             int status = e.getStatusCode().value();
-            if ((status == 429 || status == 503) && "gemini-2.5-flash".equals(modelName)) {
-                log.warn("Gemini REST API failed with status {}. Retrying with fallback model gemini-1.5-flash.", status);
-                return callGeminiWithModel(prompt, "gemini-1.5-flash");
+            if ((status == 429 || status == 503) && "gemini-3.5-flash".equals(modelName)) {
+                log.warn("Gemini REST API failed with status {}. Retrying with fallback model gemini-2.5-flash.", status);
+                return callGeminiWithModel(prompt, "gemini-2.5-flash");
             }
             throw new AIServiceException("Gemini API returned status " + status + ": " + e.getResponseBodyAsString(), e);
         } catch (AIServiceException e) {
