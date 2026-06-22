@@ -1,5 +1,6 @@
 server:
-  port: 8080
+  port: 7860
+  address: 0.0.0.0
 
 spring:
   servlet:
@@ -30,8 +31,8 @@ spring:
           enabled: false
         onnx:
           model-uri: file:/app/onnx/model.onnx
-        tokenizer:
-          uri: file:/app/onnx/tokenizer.json
+          tokenizer:
+            uri: file:/app/onnx/tokenizer.json
 
 gemini:
   api:
