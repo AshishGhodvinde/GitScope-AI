@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class RootController {
 
     @GetMapping("/")
-    public String root() {
+    public String healthCheck() {
         return "GitScope AI Backend Engine is Active and Running.";
     }
 }
