@@ -55,18 +55,23 @@ public class GitHubService {
                     cloneDir.getAbsolutePath()
             );
             pb.redirectErrorStream(true);
-            pb.environment().put("GIT_TERMINAL_PROMPT", "0"); 
+            
+            // Explicitly bypass terminal prompt and SSH authentication prompts
+            Map<String, String> env = pb.environment();
+            env.put("GIT_TERMINAL_PROMPT", "0");
+            env.put("GIT_ASKPASS", "echo");
+            env.put("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new");
 
             Process process = pb.start();
-            String output = new String(process.getInputStream().readAllBytes());
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             boolean finished = process.waitFor(5, TimeUnit.MINUTES);
 
             if (!finished || process.exitValue() != 0) {
                 cleanupDirectory(cloneDir);
-                log.error("git clone failed (exit={}): {}", process.exitValue(), output);
+                String errorMsg = output.trim();
+                log.warn("Anonymous repository clone failed for URL: {}. Details: {}", repositoryUrl, errorMsg);
                 throw new RepositoryIndexingException(
-                        "Failed to clone repository: " + repositoryUrl +
-                        ". Ensure it is public. Details: " + output.trim());
+                        "Failed to resolve or clone repository anonymously. Ensure it is public and the URL is correct. Details: " + errorMsg);
             }
 
             log.info("Successfully cloned: {}", repositoryUrl);
@@ -74,8 +79,9 @@ public class GitHubService {
 
         } catch (IOException | InterruptedException e) {
             cleanupDirectory(cloneDir);
+            log.error("Cloning repository encountered system exception: {}", e.getMessage(), e);
             throw new RepositoryIndexingException(
-                    "Failed to clone repository: " + repositoryUrl + ". " + e.getMessage(), e);
+                    "Failed to clone repository: " + repositoryUrl + ". System error: " + e.getMessage(), e);
         }
     }
 
