@@ -8,6 +8,10 @@ import com.gitscope.vectorstore.VectorStoreService;
 import com.gitscope.vectorstore.VectorStoreService.SearchResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
+import com.gitscope.dto.ChatMessageDto;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -89,10 +93,23 @@ public class ChatService {
 
         log.info("Retrieved {} chunks for repoIdentifier={}", chunks.size(), repoIdentifier);
 
-        // 3. Build the guardrail prompt and stream from Gemini
+        // 3. Build the guardrail prompt
         String promptText = geminiChatService.buildGuardrailPrompt(request.question(), chunks, repoUrl, repoIdentifier);
 
-        return geminiChatModel.stream(new Prompt(promptText))
+        // 4. Map the history list to Spring AI Message turns, then append the current query
+        List<Message> messages = new ArrayList<>();
+        if (request.history() != null) {
+            for (ChatMessageDto msg : request.history()) {
+                if ("user".equalsIgnoreCase(msg.role())) {
+                    messages.add(new UserMessage(msg.content()));
+                } else if ("model".equalsIgnoreCase(msg.role()) || "assistant".equalsIgnoreCase(msg.role())) {
+                    messages.add(new AssistantMessage(msg.content()));
+                }
+            }
+        }
+        messages.add(new UserMessage(promptText));
+
+        return geminiChatModel.stream(new Prompt(messages))
                 .map(response -> response.getResult().getOutput().getText())
                 .doOnComplete(() -> log.info("Stream completed for repoIdentifier={}", repoIdentifier))
                 .doOnError(err -> log.error("Stream error for repoIdentifier={}: {}", repoIdentifier, err.getMessage()));

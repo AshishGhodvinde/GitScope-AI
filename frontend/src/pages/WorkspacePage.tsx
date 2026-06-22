@@ -665,11 +665,22 @@ Feel free to browse files in the explorer on the right or type your first query 
       return
     }
 
+    const historyPayload = messages
+      .filter(m => !m.isLoading && m.text.trim() !== "")
+      .map(m => ({
+        role: m.sender === "user" ? "user" : "model",
+        content: m.text
+      }))
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl: repoUrl, question: userPrompt })
+        body: JSON.stringify({ 
+          repoUrl: repoUrl, 
+          question: userPrompt,
+          history: historyPayload
+        })
       })
 
       if (!response.ok) {

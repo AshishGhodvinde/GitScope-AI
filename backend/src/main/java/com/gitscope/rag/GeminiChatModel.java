@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.gitscope.config.GeminiConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -53,16 +54,21 @@ public class GeminiChatModel implements ChatModel {
 
     @Override
     public Flux<ChatResponse> stream(Prompt prompt) {
-        String instructions = prompt.getContents();
         String primaryModel = geminiConfig.getModel();
 
-        Map<String, Object> requestBody = Map.of(
-                "contents", List.of(
-                        Map.of("parts", List.of(Map.of("text", instructions)))
-                ),
-                "generationConfig", Map.of(
+        // Map Prompt's list of messages to Gemini contents payload format
+        List<Map<String, Object>> contents = prompt.getInstructions().stream()
+                .map(msg -> Map.<String, Object>of(
+                        "role", (msg instanceof AssistantMessage) ? "model" : "user",
+                        "parts", List.of(Map.of("text", msg.getText()))
+                ))
+                .collect(Collectors.toList());
+
+        Map<String, Object> requestBody = Map.<String, Object>of(
+                "contents", contents,
+                "generationConfig", Map.<String, Object>of(
                         "temperature", 0.3,
-                        "maxOutputTokens", 2048
+                        "maxOutputTokens", geminiConfig.getMaxOutputTokens()
                 )
         );
 

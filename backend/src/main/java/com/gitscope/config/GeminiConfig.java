@@ -16,4 +16,7 @@ public class GeminiConfig {
 
     @Value("${gemini.api.model}")
     private String model;
+
+    @Value("${gemini.api.max-output-tokens:4000}")
+    private Integer maxOutputTokens;
 }

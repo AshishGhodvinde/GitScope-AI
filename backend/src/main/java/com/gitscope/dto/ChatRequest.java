@@ -2,6 +2,8 @@ package com.gitscope.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import java.util.List;
+
 
 public record ChatRequest(
         @NotBlank(message = "Repository URL is required")
@@ -14,5 +16,7 @@ public record ChatRequest(
         String branch,
 
         @NotBlank(message = "Question is required")
-        String question
+        String question,
+
+        List<ChatMessageDto> history
 ) {}
