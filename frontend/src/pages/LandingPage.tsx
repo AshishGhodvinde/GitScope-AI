@@ -37,17 +37,20 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
   ]
 
   useEffect(() => {
-    fetch("/api/repositories")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load workspaces")
-        return res.json()
-      })
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setRecentRepos(data)
-        }
-      })
-      .catch((err) => console.error("Error loading repositories:", err))
+    try {
+      const stored = JSON.parse(localStorage.getItem('gitscope_workspaces') || '[]');
+      const items = stored.map((item: any) => ({
+        repoUrl: item.url,
+        repoIdentifier: item.repoIdentifier || (item.url + "#main"),
+        branch: item.branch || "main",
+        status: item.status || "COMPLETED",
+        fileCount: item.fileCount || null,
+        chunkCount: item.chunkCount || null
+      }));
+      setRecentRepos(items);
+    } catch (err) {
+      console.error("Error loading repositories from localStorage:", err);
+    }
   }, [])
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -103,6 +106,39 @@ export default function LandingPage({ onSelectRepo }: LandingPageProps) {
                 setProgress(100)
                 setActiveStep(4)
                 setIndexingCompleted(true)
+
+                try {
+                  const stored = JSON.parse(localStorage.getItem('gitscope_workspaces') || '[]');
+                  const newRepoUrl = repoUrl.trim();
+                  const exists = stored.some((item: any) => item.url === newRepoUrl);
+                  if (!exists) {
+                    const urlParts = newRepoUrl.replace(/\.git$/, "").split("/");
+                    const repoName = urlParts[urlParts.length - 1] || newRepoUrl;
+                    stored.push({
+                      url: newRepoUrl,
+                      name: repoName,
+                      timestamp: Date.now(),
+                      repoIdentifier: statusData.repoIdentifier || identifier,
+                      branch: statusData.branch || "main",
+                      status: "COMPLETED",
+                      fileCount: statusData.fileCount,
+                      chunkCount: statusData.chunkCount
+                    });
+                    localStorage.setItem('gitscope_workspaces', JSON.stringify(stored));
+                  }
+                  // Refresh landing page recent workspace list state
+                  const items = stored.map((item: any) => ({
+                    repoUrl: item.url,
+                    repoIdentifier: item.repoIdentifier || (item.url + "#main"),
+                    branch: item.branch || "main",
+                    status: item.status || "COMPLETED",
+                    fileCount: item.fileCount || null,
+                    chunkCount: item.chunkCount || null
+                  }));
+                  setRecentRepos(items);
+                } catch (e) {
+                  console.error("Failed to save workspace details to local storage:", e);
+                }
               } else if (statusData.status === "FAILED" || statusData.status === "FAILED_EMPTY") {
                 clearInterval(progressInterval)
                 const msg = statusData.status === "FAILED_EMPTY"

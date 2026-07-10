@@ -505,6 +505,31 @@ export default function WorkspacePage({ repoUrl, onBack }: WorkspacePageProps) {
         if (data.architecturePulse) {
           setRatings(data.architecturePulse)
         }
+
+        // Cache workspace in localStorage for user privacy and direct link loads
+        if (data.status === "COMPLETED" || !data.status) {
+          try {
+            const stored = JSON.parse(localStorage.getItem('gitscope_workspaces') || '[]');
+            const exists = stored.some((item: any) => item.url === repoUrl);
+            if (!exists) {
+              const urlParts = repoUrl.replace(/\.git$/, "").split("/");
+              const repoName = urlParts[urlParts.length - 1] || repoUrl;
+              stored.push({
+                url: repoUrl,
+                name: repoName,
+                timestamp: Date.now(),
+                repoIdentifier: data.repoIdentifier || id,
+                branch: "main",
+                status: "COMPLETED",
+                fileCount: data.fileCount || null,
+                chunkCount: data.chunkCount || null
+              });
+              localStorage.setItem('gitscope_workspaces', JSON.stringify(stored));
+            }
+          } catch (e) {
+            console.error("Failed to save workspace details to local storage:", e);
+          }
+        }
       })
       .catch(err => {
         console.error("Error fetching repository status details:", err)

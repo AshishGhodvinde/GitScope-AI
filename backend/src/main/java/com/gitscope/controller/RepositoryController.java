@@ -49,12 +49,11 @@ public class RepositoryController {
         return ResponseEntity.ok(repositoryService.getStatus(id));
     }
 
-    /**
-     * Returns a list of all repositories that have been submitted for indexing
-     * in this server session, with their current statuses.
-     */
+    // Endpoint disabled to isolate repository history per user in browser local storage.
+    /*
     @GetMapping
     public ResponseEntity<List<RepositoryResponse>> getAllRepositories() {
         return ResponseEntity.ok(repositoryService.getAllRepositories());
     }
+    */
 }

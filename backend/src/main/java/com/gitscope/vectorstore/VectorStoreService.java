@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -93,6 +94,33 @@ public class VectorStoreService {
         }
     }
 
+    /**
+     * Defensive check that pings the server to ensure the collection exists.
+     * If the collection is deleted on the server, it clears cachedCollectionId and boots it.
+     */
+    private void ensureCollectionExists() {
+        if (cachedCollectionId == null) {
+            getOrCreateSharedCollection();
+            return;
+        }
+        try {
+            String url = collectionsUrl() + "/" + COLLECTION_NAME;
+            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                return;
+            }
+        } catch (HttpClientErrorException.NotFound e) {
+            log.warn("Collection {} not found on server. Clearing cache and bootstrapping.", COLLECTION_NAME);
+            cachedCollectionId = null;
+            getOrCreateSharedCollection();
+        } catch (Exception e) {
+            log.warn("Failed to check collection existence, relying on cache: {}", e.getMessage());
+            if (cachedCollectionId == null) {
+                getOrCreateSharedCollection();
+            }
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Ghost-chunk purge
     // -----------------------------------------------------------------------
@@ -102,6 +130,24 @@ public class VectorStoreService {
      * Called before each ingestion run to ensure clean upserts with no ghost chunks.
      */
     public void deleteByRepoIdentifier(String repoIdentifier) {
+        try {
+            ensureCollectionExists();
+            performDelete(repoIdentifier);
+        } catch (HttpClientErrorException.NotFound e) {
+            log.warn("Collection not found during delete for {}. Clearing cache and retrying.", repoIdentifier);
+            cachedCollectionId = null;
+            try {
+                ensureCollectionExists();
+                performDelete(repoIdentifier);
+            } catch (Exception ex) {
+                log.error("Retry purge failed for repoIdentifier={}: {}", repoIdentifier, ex.getMessage(), ex);
+            }
+        } catch (Exception e) {
+            log.error("Failed to purge vectors for repoIdentifier={} (error during delete): {}", repoIdentifier, e.getMessage(), e);
+        }
+    }
+
+    private void performDelete(String repoIdentifier) {
         String collectionId = getOrCreateSharedCollection();
         String url = collectionsUrl() + "/" + collectionId + "/delete";
 
@@ -109,13 +155,8 @@ public class VectorStoreService {
         Map<String, Object> body = Map.of("where", whereClause);
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, jsonHeaders());
 
-        try {
-            restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-            log.info("Purged all vectors for repoIdentifier={}", repoIdentifier);
-        } catch (Exception e) {
-            // Non-fatal: collection may be empty. Log and continue.
-            log.warn("Could not purge vectors for {} (may be empty): {}", repoIdentifier, e.getMessage());
-        }
+        restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+        log.info("Purged all vectors for repoIdentifier={}", repoIdentifier);
     }
 
     // -----------------------------------------------------------------------
@@ -128,6 +169,33 @@ public class VectorStoreService {
      * using UUID.nameUUIDFromBytes, ensuring perfect idempotent upserts.
      */
     public void upsertChunks(String repoIdentifier, List<CodeChunk> chunks, List<List<Double>> embeddings) {
+        try {
+            ensureCollectionExists();
+            performUpsert(repoIdentifier, chunks, embeddings);
+        } catch (HttpClientErrorException.NotFound e) {
+            log.warn("Collection not found during upsert for {}. Clearing cache and retrying.", repoIdentifier);
+            cachedCollectionId = null;
+            try {
+                ensureCollectionExists();
+                performUpsert(repoIdentifier, chunks, embeddings);
+            } catch (Exception ex) {
+                log.error("Retry upsert failed for repoIdentifier={}: {}", repoIdentifier, ex.getMessage(), ex);
+                throw new AIServiceException("Failed to upsert chunks into ChromaDB on retry: " + ex.getMessage(), ex);
+            }
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("dimension")) {
+                throw new AIServiceException(
+                    "Embedding dimension mismatch in ChromaDB. " +
+                    "A stale collection with a different model's dimensions was detected. " +
+                    "Restart with a fresh ChromaDB volume. Details: " + msg, e);
+            }
+            log.error("Upsert failed for repoIdentifier={}: {}", repoIdentifier, msg, e);
+            throw new AIServiceException("Failed to upsert chunks into ChromaDB: " + msg, e);
+        }
+    }
+
+    private void performUpsert(String repoIdentifier, List<CodeChunk> chunks, List<List<Double>> embeddings) {
         String collectionId = getOrCreateSharedCollection();
         String url = collectionsUrl() + "/" + collectionId + "/upsert";
 
@@ -164,20 +232,8 @@ public class VectorStoreService {
         );
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, jsonHeaders());
-
-        try {
-            restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-            log.debug("Upserted {} chunks into ChromaDB for repoIdentifier={}", chunks.size(), repoIdentifier);
-        } catch (Exception e) {
-            String msg = e.getMessage();
-            if (msg != null && msg.contains("dimension")) {
-                throw new AIServiceException(
-                    "Embedding dimension mismatch in ChromaDB. " +
-                    "A stale collection with a different model's dimensions was detected. " +
-                    "Restart with a fresh ChromaDB volume. Details: " + msg, e);
-            }
-            throw new AIServiceException("Failed to upsert chunks into ChromaDB: " + msg, e);
-        }
+        restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+        log.debug("Upserted {} chunks into ChromaDB for repoIdentifier={}", chunks.size(), repoIdentifier);
     }
 
     // -----------------------------------------------------------------------
@@ -189,7 +245,26 @@ public class VectorStoreService {
      */
     public List<SearchResult> queryByRepoIdentifier(
             String repoIdentifier, List<Double> queryEmbedding, int topK) {
+        try {
+            ensureCollectionExists();
+            return performQuery(repoIdentifier, queryEmbedding, topK);
+        } catch (HttpClientErrorException.NotFound e) {
+            log.warn("Collection not found during query for {}. Clearing cache and retrying.", repoIdentifier);
+            cachedCollectionId = null;
+            try {
+                ensureCollectionExists();
+                return performQuery(repoIdentifier, queryEmbedding, topK);
+            } catch (Exception ex) {
+                log.error("Retry query failed for repoIdentifier={}: {}", repoIdentifier, ex.getMessage(), ex);
+                throw new AIServiceException("ChromaDB query failed on retry: " + ex.getMessage(), ex);
+            }
+        } catch (Exception e) {
+            log.error("ChromaDB query failed for repoIdentifier={}: {}", repoIdentifier, e.getMessage());
+            throw new AIServiceException("ChromaDB query failed: " + e.getMessage(), e);
+        }
+    }
 
+    private List<SearchResult> performQuery(String repoIdentifier, List<Double> queryEmbedding, int topK) {
         String collectionId = getOrCreateSharedCollection();
         String url = collectionsUrl() + "/" + collectionId + "/query";
 
@@ -203,17 +278,11 @@ public class VectorStoreService {
         );
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, jsonHeaders());
-
-        try {
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-            if (response.getBody() == null) {
-                return List.of();
-            }
-            return parseQueryResults(response.getBody());
-        } catch (Exception e) {
-            log.error("ChromaDB query failed for repoIdentifier={}: {}", repoIdentifier, e.getMessage());
-            throw new AIServiceException("ChromaDB query failed: " + e.getMessage(), e);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+        if (response.getBody() == null) {
+            return List.of();
         }
+        return parseQueryResults(response.getBody());
     }
 
     // -----------------------------------------------------------------------
