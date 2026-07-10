@@ -12,7 +12,9 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.util.retry.Retry;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -77,6 +79,9 @@ public class GeminiChatModel implements ChatModel {
                 .bodyValue(requestBody)
                 .retrieve()
                 .bodyToFlux(JsonNode.class)
+                .retryWhen(Retry.backoff(3, Duration.ofMillis(500))
+                        .filter(this::isTransientNetworkError)
+                )
                 .onErrorResume(org.springframework.web.reactive.function.client.WebClientResponseException.class, ex -> {
                     int statusCode = ex.getStatusCode().value();
                     if ((statusCode == 429 || statusCode == 503) && "gemini-3.5-flash".equals(primaryModel)) {
@@ -85,7 +90,10 @@ public class GeminiChatModel implements ChatModel {
                                 .uri(buildGeminiUri("gemini-2.5-flash"))
                                 .bodyValue(requestBody)
                                 .retrieve()
-                                .bodyToFlux(JsonNode.class);
+                                .bodyToFlux(JsonNode.class)
+                                .retryWhen(Retry.backoff(3, Duration.ofMillis(500))
+                                        .filter(this::isTransientNetworkError)
+                                );
                     }
                     return Flux.error(ex);
                 })
@@ -107,5 +115,13 @@ public class GeminiChatModel implements ChatModel {
             log.warn("Failed to extract text from chunk", e);
         }
         return "";
+    }
+
+    private boolean isTransientNetworkError(Throwable throwable) {
+        if (throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException ex) {
+            int statusCode = ex.getStatusCode().value();
+            return statusCode == 429 || statusCode == 503;
+        }
+        return false;
     }
 }

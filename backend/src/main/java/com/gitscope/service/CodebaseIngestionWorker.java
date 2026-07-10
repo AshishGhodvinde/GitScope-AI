@@ -137,7 +137,17 @@ public class CodebaseIngestionWorker {
                 boolean hasIndexedChunk = false;
                 for (CodeChunk chunk : fileChunks) {
                     if (chunk.getContent() != null && !chunk.getContent().trim().isEmpty()) {
-                        nonBlankChunks.add(chunk);
+                        String sanitizedContent = sanitizeTextForJson(chunk.getContent());
+                        CodeChunk sanitizedChunk = CodeChunk.builder()
+                                .id(chunk.getId())
+                                .content(sanitizedContent)
+                                .filePath(chunk.getFilePath())
+                                .language(chunk.getLanguage())
+                                .className(chunk.getClassName())
+                                .methodName(chunk.getMethodName())
+                                .chunkType(chunk.getChunkType())
+                                .build();
+                        nonBlankChunks.add(sanitizedChunk);
                         totalChunksCount++;
                         hasIndexedChunk = true;
                         if (totalChunksCount >= MAX_CHUNKS_CAP) {
@@ -368,5 +378,11 @@ public class CodebaseIngestionWorker {
                 "Security Profile", security,
                 "Performance", performance
         );
+    }
+
+    private String sanitizeTextForJson(String content) {
+        if (content == null) return "";
+        // Strip out lone high or low surrogates that break JSON serialization engines
+        return content.replaceAll("[\\uD800-\\uDBFF](?![\\uDC00-\\uDFFF])|(?<![\\uD800-\\uDBFF])[\\uDC00-\\uDFFF]", "");
     }
 }
